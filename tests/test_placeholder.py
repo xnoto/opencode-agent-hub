@@ -3,8 +3,9 @@
 
 def test_import():
     """Verify the package can be imported."""
-    import opencode_agent_hub
     from importlib.metadata import version
+
+    import opencode_agent_hub
 
     assert opencode_agent_hub.__version__ == version("opencode-agent-hub")
 
