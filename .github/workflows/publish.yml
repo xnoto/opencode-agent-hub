@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Publish Release
 
 on:
   # Triggered by release-please when a release is created
@@ -86,6 +86,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -118,24 +121,6 @@ jobs:
           name: dist
           path: dist/
 
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write  # Required for trusted publishing
-    steps:
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        # Uses trusted publishing - no API token needed
-        # Configure at: https://pypi.org/manage/project/opencode-agent-hub/settings/publishing/
-
   github-release:
     needs: build
     runs-on: ubuntu-latest
@@ -143,6 +128,27 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG_REF="${{ inputs.tag_name }}"
+          if [ -z "$TAG_REF" ]; then
+            TAG_REF="${{ github.ref_name }}"
+          fi
+          if [ -z "$TAG_REF" ]; then
+            echo "❌ No tag provided"
+            exit 1
+          fi
+          git fetch --tags
+          if ! git rev-parse "$TAG_REF" >/dev/null 2>&1; then
+            echo "❌ Tag $TAG_REF not found in repository"
+            exit 1
+          fi
+          echo "tag=$TAG_REF" >> "$GITHUB_OUTPUT"
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v4
@@ -153,5 +159,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.tag.outputs.tag }}
           files: dist/*
           generate_release_notes: true
