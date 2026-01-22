@@ -181,11 +181,15 @@ Observed a minimal coordination run with two agents (frontend + backend) and a c
 2. Backend → Frontend: provided full contract (status codes, schemas, CORS, JWT)
 3. Frontend → Backend: confirmed receipt and implementation
 
+**QA follow-up**:
+- A third agent (QA) was spawned with only the instruction to test the end-to-end login flow.
+- The QA agent asked for ports/credentials and received the details directly from frontend/backend without explicit user brokering.
+
 **Outcomes**:
 - ✅ Agents coordinated directly without broadcast spam
 - ✅ Coordinator stayed silent (no redundant acknowledgments)
 - ✅ Contract handshake completed in 3 messages
-- ✅ QA agent later asked for endpoint testing info and received it from frontend/backend
+- ✅ QA agent successfully obtained testing details from other agents without manual coordination
 
 **Cost overhead (estimate)**:
 - ~5–7 message injections (frontend/backend + QA) → ~5–7 LLM calls
