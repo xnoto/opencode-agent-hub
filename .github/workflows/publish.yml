@@ -3,6 +3,11 @@ name: Publish to PyPI
 on:
   # Triggered by release-please when a release is created
   workflow_call:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g., v0.2.1) from release-please"
+        required: false
+        type: string
   # Also allow manual trigger on version tags (fallback)
   push:
     tags:
@@ -53,6 +58,7 @@ jobs:
 
   # Verify tag is on main branch
   verify-branch:
+    if: ${{ inputs.tag_name != '' || startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,16 +67,21 @@ jobs:
 
       - name: Verify tag is on main
         run: |
-          TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref_name }})
+          TAG_REF="${{ inputs.tag_name }}"
+          if [ -z "$TAG_REF" ]; then
+            TAG_REF="${{ github.ref_name }}"
+          fi
+          TAG_COMMIT=$(git rev-list -n 1 "$TAG_REF")
           if git branch -r --contains "$TAG_COMMIT" | grep -q 'origin/main'; then
-            echo "✅ Tag ${{ github.ref_name }} is on main branch"
+            echo "✅ Tag $TAG_REF is on main branch"
           else
-            echo "❌ Tag ${{ github.ref_name }} is NOT on main branch"
+            echo "❌ Tag $TAG_REF is NOT on main branch"
             echo "Tags must be created from main branch commits only"
             exit 1
           fi
 
   build:
+    if: ${{ inputs.tag_name != '' || startsWith(github.ref, 'refs/tags/v') }}
     needs: [lint, test, verify-branch]
     runs-on: ubuntu-latest
     steps:
@@ -86,7 +97,10 @@ jobs:
 
       - name: Verify version matches tag
         run: |
-          TAG_VERSION="${{ github.ref_name }}"
+          TAG_VERSION="${{ inputs.tag_name }}"
+          if [ -z "$TAG_VERSION" ]; then
+            TAG_VERSION="${{ github.ref_name }}"
+          fi
           TAG_VERSION="${TAG_VERSION#v}"  # Remove 'v' prefix
           PKG_VERSION=$(uv run python -c "import opencode_agent_hub; print(opencode_agent_hub.__version__)")
           if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
