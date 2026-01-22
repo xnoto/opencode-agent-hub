@@ -1,0 +1,76 @@
+name: Update Homebrew Tap
+
+on:
+  workflow_run:
+    workflows: ["Publish to PyPI"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  update-homebrew:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch latest release tag
+        id: release
+        run: |
+          TAG=$(curl -sL https://api.github.com/repos/xnoto/opencode-agent-hub/releases/latest | jq -r .tag_name)
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "❌ Failed to resolve latest release tag"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download release tarball
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          curl -sL -o /tmp/opencode-agent-hub.tar.gz "https://github.com/xnoto/opencode-agent-hub/archive/refs/tags/${TAG}.tar.gz"
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          SHA=$(shasum -a 256 /tmp/opencode-agent-hub.tar.gz | awk '{print $1}')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: xnoto/homebrew-opencode-agent-hub
+          token: ${{ secrets.HOMEBREW_TAP_SECRET }}
+
+      - name: Update formula
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          SHA="${{ steps.sha.outputs.sha }}"
+          python - <<'PY'
+          import pathlib
+          import re
+
+          tag = "${{ steps.release.outputs.tag }}"
+          sha = "${{ steps.sha.outputs.sha }}"
+          formula = pathlib.Path("Formula/opencode-agent-hub.rb")
+          text = formula.read_text()
+
+          text = re.sub(r'url "https://github.com/xnoto/opencode-agent-hub/archive/refs/tags/v[0-9\.]+\.tar\.gz"',
+                        f'url "https://github.com/xnoto/opencode-agent-hub/archive/refs/tags/{tag}.tar.gz"',
+                        text)
+          text = re.sub(r'sha256 "[a-f0-9]{64}"', f'sha256 "{sha}"', text, count=1)
+
+          formula.write_text(text)
+          PY
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_SECRET }}
+          commit-message: "chore: update formula for ${{ steps.release.outputs.tag }}"
+          title: "chore: update formula for ${{ steps.release.outputs.tag }}"
+          body: |
+            ## Summary
+            - update Homebrew formula to ${{ steps.release.outputs.tag }}
+            - refresh tarball SHA256
+          branch: "auto/update-homebrew-${{ steps.release.outputs.tag }}"
+          delete-branch: true
