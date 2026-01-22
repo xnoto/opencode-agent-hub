@@ -1,17 +1,15 @@
 name: Update Homebrew Tap
 
 on:
-  workflow_run:
-    workflows: ["Publish Release"]
-    types:
-      - completed
+  release:
+    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   update-homebrew:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Fetch latest release tag
