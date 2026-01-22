@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.1](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.0...v0.3.1) (2026-01-22)
+
+
+### Bug Fixes
+
+* ensure tag exists for GitHub release ([0765017](https://github.com/xnoto/opencode-agent-hub/commit/0765017038563627776bcf8e0a838ec009faa738))
+* ensure tag exists for GitHub release ([7a4679d](https://github.com/xnoto/opencode-agent-hub/commit/7a4679d05c7d1fdaa340a44a82d45898d907e51e))
+
+
+### Documentation
+
+* remove PyPI install ([970a0bf](https://github.com/xnoto/opencode-agent-hub/commit/970a0bf93ded83f8f48b1f34108c48a43d5447f8))
+
 ## [0.3.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.2.1...v0.3.0) (2026-01-22)
 
 
