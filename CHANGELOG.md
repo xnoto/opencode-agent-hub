@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/xnoto/opencode-agent-hub/compare/v0.2.0...v0.2.1) (2026-01-22)
+
+
+### Bug Fixes
+
+* derive version from package metadata ([b42a6b3](https://github.com/xnoto/opencode-agent-hub/commit/b42a6b3a02d0044a5132d344949c492a427214bc))
+* read version from package metadata ([58267a3](https://github.com/xnoto/opencode-agent-hub/commit/58267a334a78111176d5cb3cc596da5d52d4fe20))
+* satisfy ruff import order ([1143f60](https://github.com/xnoto/opencode-agent-hub/commit/1143f60287a7697561905cffba4c40f772c982b7))
+
 ## [0.2.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.1.0...v0.2.0) (2026-01-22)
 
 
