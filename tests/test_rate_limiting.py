@@ -109,8 +109,8 @@ def test_rate_limit_cooldown():
     os.environ.pop("AGENT_HUB_RATE_LIMIT", None)
 
 
-def test_format_orientation_includes_protocol():
-    """Verify orientation message includes communication protocol."""
+def test_format_orientation_includes_essentials():
+    """Verify orientation message includes essential info."""
     from opencode_agent_hub import daemon
 
     agent = {"id": "test-agent", "projectPath": "/test/path"}
@@ -125,13 +125,10 @@ def test_format_orientation_includes_protocol():
 
     orientation = daemon.format_orientation(agent, all_agents)
 
-    # Check key elements are present
+    # Check key elements are present (minimalist format)
     assert "test-agent" in orientation
-    assert "COMMUNICATION PROTOCOL" in orientation
-    assert "SEND when:" in orientation
-    assert "DO NOT send:" in orientation
-    assert "1-2 sentences" in orientation
     assert "other-agent" in orientation  # Other agent should be listed
+    assert "agent-hub" in orientation.lower()  # Tool reference
 
 
 def test_format_orientation_excludes_inactive_agents():

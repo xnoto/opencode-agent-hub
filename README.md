@@ -80,11 +80,55 @@ The daemon only tracks sessions created **after** it starts:
 
 This design ensures no unnecessary token generation on historical sessions while reliably catching all new agent work.
 
-### Session Visibility Limitation
+### Known Issues
 
-> **Note**: Injected messages are currently not visible in the OpenCode TUI. This is a known upstream issue: [opencode#8564](https://github.com/anomalyco/opencode/issues/8564)
+#### Injected Messages Not Visible in TUI
 
-Because of this, agent-to-agent communication happens "invisibly" from the user's perspective. The **`agent-hub-watch`** dashboard exists specifically to provide visibility into these hidden interactions - showing you which agents are registered, active conversation threads, and message flow in real-time.
+Injected messages (orientation and inter-agent communication) are not visible in the OpenCode TUI. This is a known upstream issue: [opencode#8564](https://github.com/sst/opencode/issues/8564)
+
+**Impact**: Agent-to-agent communication happens "invisibly" from the user's perspective. Agents receive and process the messages, but users don't see them in the conversation.
+
+**Workaround**: Use `agent-hub-watch` dashboard to monitor agent activity, message flow, and conversation threads in real-time.
+
+#### TUI May Show Continued Processing After Response
+
+After an agent completes a response, the TUI may briefly show continued "thinking" indicators (spinning tokens). This appears to be a TUI display artifact related to how `prompt_async` injections are handled, not actual token consumption.
+
+**Impact**: Visual only - the agent has completed its work despite the spinner.
+
+#### Orientation Messages May Trigger Security Heuristics
+
+Some models (particularly Claude) may flag orientation messages as potential prompt injections due to their structured format. The daemon uses a minimal plain-text format to reduce this, but highly security-conscious model configurations may still flag them.
+
+**Impact**: Agent may acknowledge hub tools but report "no connection message received."
+
+**Workaround**: The agent will still have access to hub tools via MCP and can collaborate - it just won't have the orientation context.
+
+### Coordination Test Results (Jan 2026)
+
+Observed a minimal coordination run with two agents (frontend + backend) and a coordinator configured to **introduce once, then stand down**.
+
+**Test setup**:
+- Frontend task: login form that calls `POST /api/auth/login`
+- Backend task: implement `/api/auth/login` with JWT response
+- Coordinator model: `opencode/claude-opus-4-5`
+
+**Observed interaction** (3 total messages):
+1. Frontend → Backend: asked for API contract details (request/response/error shapes)
+2. Backend → Frontend: provided full contract (status codes, schemas, CORS, JWT)
+3. Frontend → Backend: confirmed receipt and implementation
+
+**Outcomes**:
+- ✅ Agents coordinated directly without broadcast spam
+- ✅ Coordinator stayed silent (no redundant acknowledgments)
+- ✅ Contract handshake completed in 3 messages
+- ✅ QA agent later asked for endpoint testing info and received it from frontend/backend
+
+**Cost overhead (estimate)**:
+- ~5–7 message injections (frontend/backend + QA) → ~5–7 LLM calls
+- Approx total tokens: **~8k–12k** (context + responses)
+- Approx cost: **$0.08–$0.25** depending on model/provider
+
 
 ## Architecture
 
@@ -263,6 +307,24 @@ export AGENT_HUB_RATE_LIMIT_COOLDOWN=30
 ```
 
 Rate-limited messages are archived with `rateLimited: true` for debugging.
+
+### Coordinator (Optional)
+
+The coordinator is a dedicated OpenCode session that facilitates **initial** agent introductions, then steps back.
+
+Configuration via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_HUB_COORDINATOR` | `true` | Enable the coordinator agent (`true`, `1`, or `yes`) |
+| `AGENT_HUB_COORDINATOR_MODEL` | `opencode/claude-opus-4-5` | OpenCode model for the coordinator session |
+| `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
+
+Example - run coordinator on a different model:
+
+```bash
+export AGENT_HUB_COORDINATOR_MODEL=opencode/claude-sonnet-4-5
+```
 
 ## Directory Structure
 

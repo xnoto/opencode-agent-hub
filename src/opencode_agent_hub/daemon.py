@@ -117,6 +117,21 @@ RATE_LIMIT_MAX_MESSAGES = int(os.environ.get("AGENT_HUB_RATE_LIMIT_MAX", "10"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("AGENT_HUB_RATE_LIMIT_WINDOW", "300"))
 RATE_LIMIT_COOLDOWN_SECONDS = int(os.environ.get("AGENT_HUB_RATE_LIMIT_COOLDOWN", "0"))
 
+# Coordinator settings
+# The coordinator is a dedicated OpenCode session that facilitates agent collaboration
+# COORDINATOR_ENABLED: Enable the coordinator agent (default: true)
+# COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/claude-opus-4-5)
+# COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
+COORDINATOR_ENABLED = os.environ.get("AGENT_HUB_COORDINATOR", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+COORDINATOR_MODEL = os.environ.get("AGENT_HUB_COORDINATOR_MODEL", "opencode/claude-opus-4-5")
+COORDINATOR_DIR = Path(
+    os.environ.get("AGENT_HUB_COORDINATOR_DIR", str(AGENT_HUB_DIR / "coordinator"))
+)
+
 # Track message timestamps per agent for rate limiting
 _agent_message_times: dict[str, list[float]] = {}
 
@@ -298,6 +313,10 @@ def save_oriented_sessions() -> None:
 
 # Hub server process (launched by daemon if needed)
 HUB_SERVER_PROCESS: subprocess.Popen | None = None
+
+# Coordinator process (dedicated OpenCode session for facilitating collaboration)
+COORDINATOR_PROCESS: subprocess.Popen | None = None
+COORDINATOR_SESSION_ID: str | None = None
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -734,6 +753,182 @@ def stop_hub_server() -> None:
 
 
 # =============================================================================
+# Coordinator Management
+# =============================================================================
+
+
+def setup_coordinator_directory() -> bool:
+    """Set up the coordinator directory with AGENTS.md.
+
+    Copies the AGENTS.md template from contrib/coordinator/ if available,
+    otherwise creates a minimal version.
+    """
+    COORDINATOR_DIR.mkdir(parents=True, exist_ok=True)
+    agents_md = COORDINATOR_DIR / "AGENTS.md"
+
+    if agents_md.exists():
+        return True
+
+    # Try to find the template in common locations
+    template_locations = [
+        Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "AGENTS.md",
+        Path.home() / ".local/share/opencode-agent-hub/coordinator/AGENTS.md",
+        Path("/usr/local/share/opencode-agent-hub/coordinator/AGENTS.md"),
+    ]
+
+    for template in template_locations:
+        if template.exists():
+            shutil.copy(template, agents_md)
+            log.info(f"Copied coordinator AGENTS.md from {template}")
+            return True
+
+    # Create minimal AGENTS.md if no template found
+    minimal_agents_md = """# Coordinator Agent
+
+You are the coordinator for a multi-agent system. Your job is to facilitate collaboration.
+
+## When You Receive "NEW_AGENT" Notification
+
+1. Ask the new agent: "What task are you working on?"
+2. Check if other agents are working on related tasks
+3. If matches found, introduce them to each other
+
+## Tools
+
+- `agent-hub_send_message` - Send messages to agents
+- `agent-hub_sync` - Get hub state
+
+## Behavior
+
+- Be concise
+- Just facilitate introductions, don't micromanage
+- Let agents coordinate directly after introduction
+"""
+    agents_md.write_text(minimal_agents_md)
+    log.info(f"Created minimal coordinator AGENTS.md at {agents_md}")
+    return True
+
+
+def find_coordinator_session() -> str | None:
+    """Find the coordinator's session ID from active sessions."""
+    sessions = get_sessions_uncached()
+    for session in sessions:
+        if session.get("directory") == str(COORDINATOR_DIR):
+            return session.get("id")
+    return None
+
+
+def start_coordinator() -> subprocess.Popen | None:
+    """Start the coordinator OpenCode session.
+
+    The coordinator is a dedicated agent that facilitates collaboration
+    between worker agents by:
+    - Capturing what each agent is working on
+    - Matching agents with related tasks
+    - Facilitating introductions
+    """
+    global COORDINATOR_PROCESS, COORDINATOR_SESSION_ID
+
+    if not COORDINATOR_ENABLED:
+        log.info("Coordinator disabled via AGENT_HUB_COORDINATOR=false")
+        return None
+
+    # Set up coordinator directory
+    if not setup_coordinator_directory():
+        log.error("Failed to set up coordinator directory")
+        return None
+
+    # Check if coordinator session already exists
+    existing_session = find_coordinator_session()
+    if existing_session:
+        COORDINATOR_SESSION_ID = existing_session
+        log.info(f"Coordinator session already exists: {existing_session[:8]}")
+        return None
+
+    log.info(f"Starting coordinator with model {COORDINATOR_MODEL}...")
+
+    # Find opencode binary
+    opencode_bin = shutil.which("opencode")
+    if not opencode_bin:
+        log.error("opencode binary not found in PATH")
+        return None
+
+    # Launch coordinator session
+    try:
+        log_dir = Path.home() / ".local/share/agent-hub-daemon"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        coord_stdout = open(log_dir / "coordinator-stdout.log", "a")  # noqa: SIM115
+        coord_stderr = open(log_dir / "coordinator-stderr.log", "a")  # noqa: SIM115
+
+        # Start opencode in the coordinator directory with specified model
+        # Using 'run' subcommand with initial prompt to start the session
+        COORDINATOR_PROCESS = subprocess.Popen(
+            [
+                opencode_bin,
+                "--model",
+                COORDINATOR_MODEL,
+                "--prompt",
+                "You are the coordinator agent. Wait for NEW_AGENT notifications and facilitate collaboration between agents. Use agent-hub_sync to check current state.",
+                str(COORDINATOR_DIR),
+            ],
+            stdout=coord_stdout,
+            stderr=coord_stderr,
+            cwd=str(COORDINATOR_DIR),
+            start_new_session=True,
+        )
+
+        # Wait for session to appear
+        for _ in range(30):  # 15 seconds max
+            time.sleep(0.5)
+            session_id = find_coordinator_session()
+            if session_id:
+                COORDINATOR_SESSION_ID = session_id
+                log.info(
+                    f"Coordinator started (PID {COORDINATOR_PROCESS.pid}, session {session_id[:8]})"
+                )
+                return COORDINATOR_PROCESS
+
+        log.error("Coordinator session failed to appear within timeout")
+        COORDINATOR_PROCESS.terminate()
+        COORDINATOR_PROCESS = None
+        return None
+
+    except Exception as e:
+        log.error(f"Failed to start coordinator: {e}")
+        return None
+
+
+def stop_coordinator() -> None:
+    """Stop the coordinator session."""
+    global COORDINATOR_PROCESS, COORDINATOR_SESSION_ID
+
+    if COORDINATOR_PROCESS is not None:
+        log.info(f"Stopping coordinator (PID {COORDINATOR_PROCESS.pid})...")
+        try:
+            COORDINATOR_PROCESS.terminate()
+            COORDINATOR_PROCESS.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            log.warning("Coordinator didn't stop gracefully, killing...")
+            COORDINATOR_PROCESS.kill()
+        COORDINATOR_PROCESS = None
+        COORDINATOR_SESSION_ID = None
+
+
+def notify_coordinator_new_agent(agent_id: str, directory: str) -> None:
+    """Notify the coordinator that a new agent has joined.
+
+    Injects a message into the coordinator session so it can
+    reach out to the new agent and facilitate collaboration.
+    """
+    if not COORDINATOR_ENABLED or not COORDINATOR_SESSION_ID:
+        return
+
+    notification = f"NEW_AGENT: {agent_id} at {directory}"
+    inject_message(COORDINATOR_SESSION_ID, notification)
+    log.info(f"Notified coordinator of new agent: {agent_id}")
+
+
+# =============================================================================
 # OpenCode Integration
 # =============================================================================
 
@@ -957,75 +1152,54 @@ def get_or_create_agent_for_directory(directory: str, agents: dict[str, dict]) -
 
 
 def format_orientation(agent: dict, all_agents: dict[str, dict]) -> str:
-    """Format orientation message for a newly detected agent session.
-
-    Includes minimal communication protocol to encourage proactive yet
-    concise coordination between agents.
-    """
+    """Format minimal orientation message for a newly detected agent session."""
     agent_id = agent.get("id", "unknown")
-    project_path = agent.get("projectPath", "unknown")
 
     # List other active agents (exclude self)
     other_agents = [aid for aid, a in all_agents.items() if aid != agent_id and is_agent_active(a)]
-    agents_str = ", ".join(other_agents[:8])  # Cap at 8 to avoid huge lists
-    if len(other_agents) > 8:
-        agents_str += f" (+{len(other_agents) - 8} more)"
 
-    lines = [
-        "┌─────────────────────────────────────────────────",
-        "│ 🔗 AGENT HUB - CONNECTED",
-        "├─────────────────────────────────────────────────",
-        f"│ You are: {agent_id}",
-        f"│ Project: {project_path}",
-    ]
+    parts = [f"Agent hub connected. You are: {agent_id}"]
 
     if other_agents:
-        lines.extend(
-            [
-                "├─────────────────────────────────────────────────",
-                f"│ Other agents: {agents_str}",
-            ]
-        )
+        agents_str = ", ".join(other_agents[:5])
+        if len(other_agents) > 5:
+            agents_str += f" (+{len(other_agents) - 5} more)"
+        parts.append(f"Other agents: {agents_str}")
 
-    lines.extend(
-        [
-            "├─────────────────────────────────────────────────",
-            "│ COMMUNICATION PROTOCOL (be proactive, stay minimal):",
-            "│",
-            "│ SEND when:",
-            "│  • Starting work that affects another agent's domain",
-            "│  • Blocked and need input from a specific agent",
-            "│  • Completed a task requested by another agent",
-            "│  • Hit a critical error others should know about",
-            "│",
-            "│ DO NOT send:",
-            "│  • Progress updates or status checks",
-            "│  • Acknowledgments ('got it', 'thanks')",
-            "│  • Info already in shared files",
-            "│",
-            "│ Keep messages to 1-2 sentences.",
-            "│ Use agent-hub tools: send_message, sync, get_hub_status",
-            "└─────────────────────────────────────────────────",
-        ]
-    )
-    return "\n".join(lines)
+    parts.append("Tools: agent-hub_send_message, agent-hub_sync")
+
+    return " | ".join(parts)
 
 
 def orient_session(session_id: str, agent: dict, all_agents: dict[str, dict]) -> bool:
-    """Inject orientation message into a session."""
+    """Inject orientation message into a session and notify coordinator."""
     if not session_id:
         return False
 
     if session_id in ORIENTED_SESSIONS:
         return False  # Already oriented
 
+    agent_id = agent.get("id", "unknown")
+    directory = agent.get("projectPath", "")
+
+    # Skip coordinator session itself
+    if directory == str(COORDINATOR_DIR):
+        ORIENTED_SESSIONS.add(session_id)
+        save_oriented_sessions()
+        return True
+
+    # Inject minimal orientation to the agent
     orientation = format_orientation(agent, all_agents)
     inject_message(session_id, orientation)
+
+    # Notify coordinator of new agent (coordinator will reach out to capture task)
+    notify_coordinator_new_agent(agent_id, directory)
+
     ORIENTED_SESSIONS.add(session_id)
     save_oriented_sessions()
     metrics.inc("agent_hub_sessions_oriented_total")
     metrics.set_gauge("agent_hub_oriented_sessions", len(ORIENTED_SESSIONS))
-    log.info(f"Oriented session {session_id[:8]} for agent {agent.get('id')}")
+    log.info(f"Oriented session {session_id[:8]} for agent {agent_id}")
     return True
 
 
@@ -1097,99 +1271,25 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
 
 
 def format_notification(msg: dict, to_agent_id: str) -> str:
-    """Format agent-hub message with full response instructions.
-
-    For urgent tasks: Uses imperative plain-text format FIRST to trigger immediate
-    action from the LLM, then provides structured response instructions.
-
-    For other messages: Uses the standard formatted box.
-
-    NOTE: Plain text messages at the start are more likely to trigger immediate
-    LLM response than box-formatted messages, which may be interpreted as
-    informational context rather than actionable requests.
-    """
+    """Format minimal agent-hub message notification."""
     from_agent = msg.get("from", "unknown")
     msg_type = msg.get("type", "message")
     content = msg.get("content", "")
     priority = msg.get("priority", "normal")
     thread_id = msg.get("threadId", "")
 
-    # URGENT TASKS: Use plain imperative text FIRST to trigger immediate action
-    # This format is more likely to wake sleeping agents than box-formatted messages
-    if msg_type == "task" and priority == "urgent":
-        lines = [
-            f"URGENT FROM {from_agent}: {content}",
-            "",
-            "^^^ ACT ON THIS IMMEDIATELY. Do not wait for user input. ^^^",
-            "",
-            "┌─────────────────────────────────────────────────",
-            "│ RESPOND using agent-hub_send_message:",
-            f'│   from: "{to_agent_id}"',
-            f'│   to: "{from_agent}"',
-        ]
-        if thread_id:
-            lines.append(f'│   threadId: "{thread_id}"')
-        lines.extend(
-            [
-                '│   type: "completion" | "context" | "question" | "error"',
-                "│   content: <your response>",
-                "│",
-                '│ To resolve thread, include "RESOLVED:" in content.',
-                "└─────────────────────────────────────────────────",
-            ]
-        )
-        return "\n".join(lines)
+    # Build concise notification
+    prefix = "URGENT: " if priority == "urgent" else ""
+    header = f"[{msg_type}] from {from_agent}"
+    if thread_id:
+        header += f" (thread: {thread_id})"
 
-    # Type icons
-    type_icons = {
-        "question": "❓",
-        "task": "📋",
-        "context": "📎",
-        "completion": "✅",
-        "error": "❌",
-    }
-    icon = type_icons.get(msg_type, "💬")
-
-    # Priority markers
-    priority_markers = {
-        "urgent": "🚨 URGENT",
-        "high": "⚠️ HIGH",
-        "normal": "",
-        "low": "💤 LOW",
-    }
-    priority_str = priority_markers.get(priority, "")
-
-    # Build notification block
     lines = [
-        "┌─────────────────────────────────────────────────",
-        f"│ {icon} AGENT HUB MESSAGE",
-        "├─────────────────────────────────────────────────",
-        f"│ FROM: {from_agent}",
-        f"│ TYPE: {msg_type}" + (f" {priority_str}" if priority_str else ""),
+        f"{prefix}{header}",
+        content,
+        "",
+        f'Reply: agent-hub_send_message(from="{to_agent_id}", to="{from_agent}", type="completion", content="...")',
     ]
-    if thread_id:
-        lines.append(f"│ THREAD: {thread_id}")
-    lines.extend(
-        [
-            "├─────────────────────────────────────────────────",
-            f"│ {content}",
-            "├─────────────────────────────────────────────────",
-            "│ RESPOND using agent-hub_send_message:",
-            f'│   from: "{to_agent_id}"',
-            f'│   to: "{from_agent}"',
-        ]
-    )
-    if thread_id:
-        lines.append(f'│   threadId: "{thread_id}"')
-    lines.extend(
-        [
-            '│   type: "completion" | "context" | "question" | "error"',
-            "│   content: <your response>",
-            "│",
-            '│ To resolve thread, include "RESOLVED:" in content.',
-            "└─────────────────────────────────────────────────",
-        ]
-    )
 
     return "\n".join(lines)
 
@@ -1386,9 +1486,16 @@ def main():
     log.info(f"Watching agents: {AGENTS_DIR}")
     log.info(f"OpenCode API: {OPENCODE_URL}")
     log.info(f"Message TTL: {MESSAGE_TTL_SECONDS}s, GC interval: {GC_INTERVAL_SECONDS}s")
+    if COORDINATOR_ENABLED:
+        log.info(f"Coordinator: enabled, model={COORDINATOR_MODEL}, dir={COORDINATOR_DIR}")
+    else:
+        log.info("Coordinator: disabled")
 
     # Start hub server if not already running
     start_hub_server()
+
+    # Start coordinator (after hub server is ready)
+    start_coordinator()
 
     # Shared agents dict - updated by AgentHandler
     agents = load_agents()
@@ -1422,6 +1529,7 @@ def main():
     def shutdown_handler(signum, frame):
         log.info(f"Received signal {signum}, shutting down...")
         observer.stop()
+        stop_coordinator()
         stop_hub_server()
 
     signal.signal(signal.SIGTERM, shutdown_handler)
@@ -1456,6 +1564,18 @@ def main():
                 start_hub_server()
             shutdown_event.wait(10)  # Check every 10 seconds
 
+    def coordinator_monitor():
+        """Background thread to monitor coordinator health."""
+        while not shutdown_event.is_set():
+            if COORDINATOR_ENABLED:
+                if COORDINATOR_PROCESS is not None and COORDINATOR_PROCESS.poll() is not None:
+                    log.warning("Coordinator died, restarting...")
+                    start_coordinator()
+                elif COORDINATOR_PROCESS is None and COORDINATOR_SESSION_ID is None:
+                    # Coordinator not started yet or failed to start
+                    start_coordinator()
+            shutdown_event.wait(30)  # Check every 30 seconds
+
     def metrics_worker():
         """Background thread to write metrics and log summaries."""
         while not shutdown_event.is_set():
@@ -1482,6 +1602,7 @@ def main():
         threading.Thread(target=session_poller, name="session-poller", daemon=True),
         threading.Thread(target=gc_worker, name="gc-worker", daemon=True),
         threading.Thread(target=hub_monitor, name="hub-monitor", daemon=True),
+        threading.Thread(target=coordinator_monitor, name="coordinator-monitor", daemon=True),
         threading.Thread(target=metrics_worker, name="metrics-worker", daemon=True),
         threading.Thread(
             target=lambda: message_worker(agents, shutdown_event),
@@ -1520,6 +1641,7 @@ def main():
         # Wait for threads to finish
         for t in threads:
             t.join(timeout=2)
+        stop_coordinator()
         stop_hub_server()
     observer.join()
 
