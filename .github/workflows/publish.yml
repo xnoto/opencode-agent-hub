@@ -1,0 +1,143 @@
+name: Publish to PyPI
+
+on:
+  # Triggered by release-please when a release is created
+  workflow_call:
+  # Also allow manual trigger on version tags (fallback)
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # Run full CI checks before publishing
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run ruff check
+        run: uv run ruff check .
+
+      - name: Run ruff format check
+        run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests
+        run: uv run pytest -v
+
+  # Verify tag is on main branch
+  verify-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        run: |
+          TAG_COMMIT=$(git rev-list -n 1 ${{ github.ref_name }})
+          if git branch -r --contains "$TAG_COMMIT" | grep -q 'origin/main'; then
+            echo "✅ Tag ${{ github.ref_name }} is on main branch"
+          else
+            echo "❌ Tag ${{ github.ref_name }} is NOT on main branch"
+            echo "Tags must be created from main branch commits only"
+            exit 1
+          fi
+
+  build:
+    needs: [lint, test, verify-branch]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${{ github.ref_name }}"
+          TAG_VERSION="${TAG_VERSION#v}"  # Remove 'v' prefix
+          PKG_VERSION=$(uv run python -c "import opencode_agent_hub; print(opencode_agent_hub.__version__)")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "❌ Tag version ($TAG_VERSION) doesn't match package version ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "✅ Version $PKG_VERSION matches tag"
+
+      - name: Build package
+        run: uv build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # Required for trusted publishing
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # Uses trusted publishing - no API token needed
+        # Configure at: https://pypi.org/manage/project/opencode-agent-hub/settings/publishing/
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+          generate_release_notes: true

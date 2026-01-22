@@ -1,0 +1,348 @@
+# opencode-agent-hub
+
+Multi-agent coordination daemon and tools for [OpenCode](https://github.com/sst/opencode).
+
+Enables multiple AI agents running in separate OpenCode sessions to communicate, collaborate, and coordinate work through a shared message bus.
+
+> **Warning**: This software enables autonomous agent-to-agent communication which triggers LLM API calls. Use at your own risk. The authors are not responsible for any token usage, API costs, or other expenses incurred. Consider enabling [rate limiting](#rate-limiting-optional) to control costs.
+
+## Features
+
+- **Message Bus**: Filesystem-based message passing between agents via `~/.agent-hub/messages/`
+- **Session Integration**: Automatically discovers and injects messages into OpenCode sessions
+- **Thread Management**: Conversations tracked with auto-created thread IDs and resolution
+- **Agent Auto-Registration**: Sessions automatically registered as agents by project path
+- **Garbage Collection**: Stale messages, agents, and threads cleaned up (1hr TTL)
+- **Prometheus Metrics**: Exportable metrics at `~/.agent-hub/metrics.prom`
+- **Dashboard**: Real-time terminal UI showing agents, threads, and messages
+
+## How It Works
+
+The daemon operates as a **message broker** between OpenCode sessions, using a local relay server to inject messages directly into agent conversations.
+
+### Session Discovery
+
+1. **Daemon starts** an OpenCode relay server on port 4096 (if not already running)
+2. **Polls the relay API** (`GET /session`) every 5 seconds to discover active sessions
+3. **Auto-registers agents** based on each session's working directory (project path)
+4. **Injects an orientation message** into newly discovered sessions, informing the agent of its registered identity
+
+### Message Flow
+
+When Agent A sends a message to Agent B:
+
+```
+Agent A                    Daemon                      Agent B
+   │                         │                            │
+   │  write JSON to          │                            │
+   │  ~/.agent-hub/messages/ │                            │
+   │ ───────────────────────>│                            │
+   │                         │  detect new file           │
+   │                         │  (watchdog)                │
+   │                         │                            │
+   │                         │  lookup Agent B's session  │
+   │                         │  via relay API             │
+   │                         │                            │
+   │                         │  POST /session/{id}/prompt │
+   │                         │ ──────────────────────────>│
+   │                         │                            │
+   │                         │                   Agent B wakes,
+   │                         │                   sees message with
+   │                         │                   response instructions
+```
+
+### The Relay Server
+
+The daemon auto-starts `opencode serve --port 4096` which provides:
+
+- **Session listing**: `GET /session` - returns all active OpenCode sessions
+- **Message injection**: `POST /session/{id}/prompt_async` - injects a prompt that wakes the agent
+
+This relay server sees **all** OpenCode TUI instances on the machine, allowing the daemon to route messages to any session regardless of which terminal it's running in.
+
+### Push Model (No Polling Required by Agents)
+
+Agents don't need to poll for messages. The daemon:
+1. Watches the filesystem for new message files
+2. Looks up the target agent's active session
+3. Injects the message directly into that session via the relay API
+4. The injection **wakes** the agent and triggers an LLM response
+
+Each injected message includes full response instructions, so agents don't need special hub protocol knowledge.
+
+### Session Visibility Limitation
+
+> **Note**: Injected messages are currently not visible in the OpenCode TUI. This is a known upstream issue: [opencode#8564](https://github.com/anomalyco/opencode/issues/8564)
+
+Because of this, agent-to-agent communication happens "invisibly" from the user's perspective. The **`agent-hub-watch`** dashboard exists specifically to provide visibility into these hidden interactions - showing you which agents are registered, active conversation threads, and message flow in real-time.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         agent-hub-daemon                             │
+│                                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │
+│  │ File Watcher │  │ Session Poll │  │  GC Worker   │               │
+│  │  (watchdog)  │  │   (5s loop)  │  │  (60s loop)  │               │
+│  └──────┬───────┘  └──────┬───────┘  └──────────────┘               │
+│         │                 │                                          │
+│         │  new message    │  new session                             │
+│         ▼                 ▼                                          │
+│  ┌──────────────────────────────────┐                               │
+│  │      Message Processing Queue     │                               │
+│  │  (async workers with retries)     │                               │
+│  └──────────────┬───────────────────┘                               │
+│                 │                                                    │
+│                 │ POST /session/{id}/prompt_async                    │
+│                 ▼                                                    │
+│  ┌──────────────────────────────────┐    ┌────────────────────────┐ │
+│  │   OpenCode Relay Server (4096)   │───▶│  OpenCode Sessions     │ │
+│  │   - Lists all active sessions    │    │  (TUI instances)       │ │
+│  │   - Injects prompts into any     │    │                        │ │
+│  └──────────────────────────────────┘    └────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Prerequisites
+
+This daemon requires [agent-hub-mcp](https://github.com/gilbarbara/agent-hub-mcp) by [@gilbarbara](https://github.com/gilbarbara) to be configured in OpenCode. This MCP server provides the tools agents use to send messages.
+
+Add to your `~/.config/opencode/config.json`:
+
+```json
+{
+  "mcp": {
+    "agent-hub": {
+      "type": "local",
+      "command": ["npx", "-y", "agent-hub-mcp@latest"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Restart OpenCode after adding the configuration.
+
+## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew install xnoto/opencode-agent-hub/opencode-agent-hub
+```
+
+### PyPI
+
+```bash
+# With uv (recommended)
+uv tool install opencode-agent-hub
+
+# With pipx
+pipx install opencode-agent-hub
+```
+
+### From source
+
+```bash
+git clone https://github.com/xnoto/opencode-agent-hub
+cd opencode-agent-hub
+uv sync
+```
+
+## Running as a Service
+
+### macOS (launchd)
+
+```bash
+# Install
+cp contrib/launchd/com.xnoto.agent-hub-daemon.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.xnoto.agent-hub-daemon.plist
+
+# Or with Homebrew
+brew services start opencode-agent-hub
+
+# View logs
+tail -f ~/Library/Logs/agent-hub-daemon.log
+
+# Stop
+launchctl unload ~/Library/LaunchAgents/com.xnoto.agent-hub-daemon.plist
+```
+
+### Linux (systemd)
+
+```bash
+# Install
+mkdir -p ~/.config/systemd/user
+cp contrib/systemd/agent-hub-daemon.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now agent-hub-daemon
+
+# View logs
+journalctl --user -u agent-hub-daemon -f
+
+# Stop
+systemctl --user stop agent-hub-daemon
+```
+
+## Usage
+
+### Start the daemon
+
+```bash
+agent-hub-daemon
+```
+
+The daemon will:
+1. Start an OpenCode hub server on port 4096 (if not already running)
+2. Watch `~/.agent-hub/messages/` for new message files
+3. Auto-register agents for any OpenCode session it discovers
+4. Inject messages into the appropriate sessions
+
+### Monitor with the dashboard
+
+```bash
+agent-hub-watch
+```
+
+Shows a live view of:
+- Daemon status (running/stopped)
+- Registered agents and their last seen time
+- Active conversation threads
+- Recent messages
+
+### Run as standalone scripts (uv)
+
+The scripts can also run directly without installation:
+
+```bash
+# Daemon
+uv run src/opencode_agent_hub/daemon.py
+
+# Dashboard
+uv run src/opencode_agent_hub/watch.py
+```
+
+## Configuration
+
+Configuration via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENCODE_PORT` | `4096` | Port for OpenCode relay server |
+| `AGENT_HUB_DAEMON_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+
+### Rate Limiting (Optional)
+
+To prevent excessive agent chatter, enable rate limiting:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_HUB_RATE_LIMIT` | `false` | Enable rate limiting (`true`, `1`, or `yes`) |
+| `AGENT_HUB_RATE_LIMIT_MAX` | `10` | Max messages per agent per window |
+| `AGENT_HUB_RATE_LIMIT_WINDOW` | `300` | Window size in seconds (default: 5 min) |
+| `AGENT_HUB_RATE_LIMIT_COOLDOWN` | `0` | Min seconds between messages from same agent |
+
+Example - limit agents to 5 messages per 10 minutes with 30s cooldown:
+
+```bash
+export AGENT_HUB_RATE_LIMIT=true
+export AGENT_HUB_RATE_LIMIT_MAX=5
+export AGENT_HUB_RATE_LIMIT_WINDOW=600
+export AGENT_HUB_RATE_LIMIT_COOLDOWN=30
+```
+
+Rate-limited messages are archived with `rateLimited: true` for debugging.
+
+## Directory Structure
+
+```
+~/.agent-hub/
+├── agents/           # Registered agent JSON files
+├── messages/         # Pending messages (JSON files)
+│   └── archive/      # Processed/expired messages
+├── threads/          # Conversation thread tracking
+├── metrics.prom      # Prometheus metrics export
+└── oriented_sessions.json  # Session orientation cache
+```
+
+## Message Format
+
+Messages are JSON files in `~/.agent-hub/messages/`:
+
+```json
+{
+  "from": "agent-id",
+  "to": "target-agent-id",
+  "type": "task|question|context|completion|error",
+  "content": "Message content here",
+  "priority": "normal|urgent|high|low",
+  "threadId": "auto-generated-or-provided",
+  "timestamp": 1234567890000
+}
+```
+
+### Message Types
+
+| Type | Purpose |
+|------|---------|
+| `task` | Request work from another agent |
+| `question` | Ask for information |
+| `context` | Share context/information |
+| `completion` | Report task completion (include "RESOLVED" to close thread) |
+| `error` | Report an error |
+
+## Integration with MCP
+
+The daemon works with [agent-hub-mcp](https://github.com/gilbarbara/agent-hub-mcp) which provides tools for agents to:
+
+- `register_agent` - Register with the hub
+- `send_message` - Send messages to other agents
+- `get_messages` - Retrieve pending messages
+- `sync` - Get all pending work
+
+When the daemon is running, agents don't need to poll - messages are pushed directly into their sessions.
+
+## Metrics
+
+Prometheus-compatible metrics exported to `~/.agent-hub/metrics.prom`:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `agent_hub_messages_total` | counter | Total messages processed |
+| `agent_hub_injections_total` | counter | Messages injected into sessions |
+| `agent_hub_sessions_oriented_total` | counter | Sessions that received orientation |
+| `agent_hub_active_agents` | gauge | Current registered agents |
+| `agent_hub_gc_runs_total` | counter | Garbage collection runs |
+
+## Development
+
+```bash
+# Clone and setup
+git clone https://github.com/xnoto/opencode-agent-hub
+cd opencode-agent-hub
+uv sync --all-extras
+
+# Run linting
+uv run ruff check .
+uv run ruff format .
+
+# Run type checking
+uv run mypy src/
+
+# Run tests
+uv run pytest
+```
+
+## Acknowledgments
+
+This project builds on the work of:
+
+- **[OpenCode](https://github.com/sst/opencode)** by [SST](https://github.com/sst) - The AI coding assistant this daemon integrates with
+- **[agent-hub-mcp](https://github.com/gilbarbara/agent-hub-mcp)** by [@gilbarbara](https://github.com/gilbarbara) - The MCP server providing agent communication tools
+
+Thank you for making your work available to the community.
+
+## License
+
+MIT - See [LICENSE](LICENSE) for details.
