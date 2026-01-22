@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.1...v0.3.2) (2026-01-22)
+
+
+### Bug Fixes
+
+* trigger Homebrew update on release ([30b5090](https://github.com/xnoto/opencode-agent-hub/commit/30b5090b30a555d98b41436856f3233ea4907ca9))
+* trigger Homebrew update on release ([2a22ef0](https://github.com/xnoto/opencode-agent-hub/commit/2a22ef03769ad4ab7bcf2f882bdf27d27e4055bf))
+
 ## [0.3.1](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.0...v0.3.1) (2026-01-22)
 
 
