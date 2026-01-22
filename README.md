@@ -70,6 +70,16 @@ Agents don't need to poll for messages. The daemon:
 
 Each injected message includes full response instructions, so agents don't need special hub protocol knowledge.
 
+### Session Lifecycle
+
+The daemon only tracks sessions created **after** it starts:
+
+- **New sessions**: OpenCode TUIs started after the daemon will receive an orientation message and be tracked for message routing
+- **Pre-existing sessions**: Sessions that were running before the daemon started are ignored (no orientation spam)
+- **Daemon restart**: Gives a clean slate - only sessions created after restart are tracked
+
+This design ensures no unnecessary token generation on historical sessions while reliably catching all new agent work.
+
 ### Session Visibility Limitation
 
 > **Note**: Injected messages are currently not visible in the OpenCode TUI. This is a known upstream issue: [opencode#8564](https://github.com/anomalyco/opencode/issues/8564)

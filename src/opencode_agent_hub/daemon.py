@@ -123,6 +123,9 @@ _agent_message_times: dict[str, list[float]] = {}
 # Track sessions that have been oriented (session_id -> True)
 ORIENTED_SESSIONS: set[str] = set()
 
+# Daemon start time - only orient sessions created after this
+DAEMON_START_TIME_MS: int = int(time.time() * 1000)
+
 # Session cache (avoids repeated API calls)
 _sessions_cache: list[dict] = []
 _sessions_cache_time: float = 0
@@ -212,10 +215,10 @@ class PrometheusMetrics:
             if name in self._counters:
                 self._counters[name] += value
 
-    def set_gauge(self, name: str, value: float) -> None:
+    def set_gauge(self, name: str, value: int | float) -> None:
         """Set a gauge value."""
         with self._lock:
-            self._gauges[name] = value
+            self._gauges[name] = int(value)
 
     def get(self, name: str) -> float:
         """Get current value of a metric."""
@@ -284,20 +287,6 @@ METRICS_FILE = AGENT_HUB_DIR / "metrics.prom"
 METRICS_INTERVAL = 30  # Write metrics every 30 seconds
 
 
-def load_oriented_sessions() -> set[str]:
-    """Load oriented sessions from disk."""
-    global ORIENTED_SESSIONS
-    if ORIENTED_SESSIONS_FILE.exists():
-        try:
-            data = json.loads(ORIENTED_SESSIONS_FILE.read_text())
-            ORIENTED_SESSIONS = set(data) if isinstance(data, list) else set()
-            log.debug(f"Loaded {len(ORIENTED_SESSIONS)} oriented sessions from disk")
-        except (json.JSONDecodeError, OSError) as e:
-            log.warning(f"Failed to load oriented sessions: {e}")
-            ORIENTED_SESSIONS = set()
-    return ORIENTED_SESSIONS
-
-
 def save_oriented_sessions() -> None:
     """Save oriented sessions to disk."""
     try:
@@ -305,33 +294,6 @@ def save_oriented_sessions() -> None:
         ORIENTED_SESSIONS_FILE.write_text(json.dumps(list(ORIENTED_SESSIONS)))
     except OSError as e:
         log.warning(f"Failed to save oriented sessions: {e}")
-
-
-def bootstrap_oriented_sessions(agents: dict[str, dict]) -> None:
-    """Mark sessions that already have matching agents as oriented.
-
-    This prevents re-orienting sessions that were already set up.
-    Sessions WITHOUT a matching agent are left for the poller to auto-register.
-    """
-    global ORIENTED_SESSIONS
-    sessions = get_sessions()
-    if not sessions:
-        return
-
-    initial_count = len(ORIENTED_SESSIONS)
-    for session in sessions:
-        session_id = session.get("id", "")
-        directory = session.get("directory", "")
-        if not session_id or not directory:
-            continue
-        # Only bootstrap if agent already exists for this directory
-        if find_agent_for_directory(directory, agents):
-            ORIENTED_SESSIONS.add(session_id)
-
-    added = len(ORIENTED_SESSIONS) - initial_count
-    if added > 0:
-        save_oriented_sessions()
-        log.info(f"Bootstrapped {added} existing sessions (with agents) as already oriented")
 
 
 # Hub server process (launched by daemon if needed)
@@ -1049,12 +1011,6 @@ def format_orientation(agent: dict, all_agents: dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
-def get_active_session_ids() -> set[str]:
-    """Get IDs of currently active OpenCode sessions from the API."""
-    sessions = get_sessions()
-    return {s.get("id", "") for s in sessions if s.get("id")}
-
-
 def orient_session(session_id: str, agent: dict, all_agents: dict[str, dict]) -> bool:
     """Inject orientation message into a session."""
     if not session_id:
@@ -1073,20 +1029,10 @@ def orient_session(session_id: str, agent: dict, all_agents: dict[str, dict]) ->
     return True
 
 
-def is_project_specific_session(path: Path) -> bool:
-    """Check if session file is in a project-specific subdirectory (not global)."""
-    # Path like: ~/.local/share/opencode/storage/session/<projectID>/ses_xxx.json
-    # Project-specific if parent dir is not "global"
-    return path.parent.name != "global"
-
-
-def process_session_file(
-    path: Path, agents: dict[str, dict], active_sessions: set[str] = None
-) -> None:
+def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     """Process an OpenCode session file and orient if needed.
 
-    For global sessions: only orients if session is active in the API.
-    For project-specific sessions: trusts the file directly (API doesn't list them).
+    Only orients sessions created AFTER the daemon started.
     """
     session = load_opencode_session(path)
     if not session:
@@ -1099,18 +1045,11 @@ def process_session_file(
     if session_id in ORIENTED_SESSIONS:
         return  # Already oriented
 
-    # Project-specific sessions (non-global) are trusted directly since
-    # the OpenCode hub API only lists global sessions
-    if not is_project_specific_session(path):
-        # Global session - verify it's active in the API
-        if active_sessions is None:
-            active_sessions = get_active_session_ids()
-
-        if session_id not in active_sessions:
-            log.debug(f"Session {session_id[:8]} not active in API, skipping orientation")
-            return
-    else:
-        log.debug(f"Session {session_id[:8]} is project-specific, trusting file directly")
+    # Only orient sessions created AFTER daemon started
+    created_ms = session.get("time", {}).get("created", 0)
+    if created_ms < DAEMON_START_TIME_MS:
+        log.debug(f"Session {session_id[:8]} created before daemon start, skipping")
+        return
 
     directory = session.get("directory", "")
     if not directory:
@@ -1118,37 +1057,33 @@ def process_session_file(
 
     # Get or auto-create agent for this directory
     agent = get_or_create_agent_for_directory(directory, agents)
+    log.info(f"File watcher: new session {session_id[:8]}, orienting")
     orient_session(session_id, agent, agents)
 
 
 def poll_active_sessions(agents: dict[str, dict]) -> None:
-    """Poll API for active sessions and orient any new ones matching registered agents.
+    """Poll API for active sessions and orient any new ones.
 
-    This catches sessions that were missed by the file watcher or were already
-    running when the daemon started.
+    Only considers sessions created AFTER the daemon started. This ensures:
+    - Historical sessions are never spammed with orientation messages
+    - Only genuinely new TUI sessions get oriented
+    - Daemon restart gives a clean slate
 
-    To avoid spamming historical sessions, we only consider the most recent
-    session per unique directory.
+    Sessions are oriented once and tracked in ORIENTED_SESSIONS to prevent
+    repeated messaging.
     """
     sessions = get_sessions()
     if not sessions:
         return
 
-    # Group by directory, keep only the most recent session per directory
-    by_directory: dict[str, dict] = {}
     for session in sessions:
-        directory = session.get("directory", "")
-        if not directory:
-            continue
-        updated = session.get("time", {}).get("updated", 0)
-        existing = by_directory.get(directory)
-        if not existing or updated > existing.get("time", {}).get("updated", 0):
-            by_directory[directory] = session
-
-    # Only orient the most recent session per directory
-    for session in by_directory.values():
         session_id = session.get("id", "")
         if not session_id or session_id in ORIENTED_SESSIONS:
+            continue
+
+        # Only orient sessions created AFTER daemon started
+        created_ms = session.get("time", {}).get("created", 0)
+        if created_ms < DAEMON_START_TIME_MS:
             continue
 
         directory = session.get("directory", "")
@@ -1157,7 +1092,7 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
 
         # Get or auto-create agent for this directory
         agent = get_or_create_agent_for_directory(directory, agents)
-        log.debug(f"Polling found new session {session_id[:8]} for {directory}")
+        log.info(f"New session {session_id[:8]} created after daemon start, orienting")
         orient_session(session_id, agent, agents)
 
 
@@ -1438,13 +1373,18 @@ def main():
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load persisted state
-    load_oriented_sessions()
+    # Fresh start: clear oriented sessions from previous runs
+    # Only sessions created AFTER daemon starts will be oriented
+    global ORIENTED_SESSIONS, DAEMON_START_TIME_MS
+    DAEMON_START_TIME_MS = int(time.time() * 1000)
+    ORIENTED_SESSIONS = set()
+    save_oriented_sessions()
 
+    log.info(f"Daemon starting at {DAEMON_START_TIME_MS} - only new sessions will be oriented")
     log.info(f"Watching messages: {MESSAGES_DIR}")
     log.info(f"Watching sessions: {OPENCODE_SESSIONS_DIR}")
     log.info(f"Watching agents: {AGENTS_DIR}")
     log.info(f"OpenCode API: {OPENCODE_URL}")
-    log.info("All messages wake agents with response instructions")
     log.info(f"Message TTL: {MESSAGE_TTL_SECONDS}s, GC interval: {GC_INTERVAL_SECONDS}s")
 
     # Start hub server if not already running
@@ -1453,10 +1393,6 @@ def main():
     # Shared agents dict - updated by AgentHandler
     agents = load_agents()
     log.info(f"Loaded {len(agents)} registered agents: {list(agents.keys())}")
-
-    # Bootstrap: mark existing sessions WITH agents as already oriented
-    # Sessions without agents will be auto-registered by the poller
-    bootstrap_oriented_sessions(agents)
 
     # Set up observers
     observer = Observer()
