@@ -50,6 +50,7 @@ jobs:
         continue-on-error: true  # Type hints are aspirational for now
 
   test:
+    name: testExpected
     runs-on: ubuntu-latest
     strategy:
       matrix:
