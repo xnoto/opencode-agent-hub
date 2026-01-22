@@ -307,13 +307,32 @@ When the daemon is running, agents don't need to poll - messages are pushed dire
 
 Prometheus-compatible metrics exported to `~/.agent-hub/metrics.prom`:
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `agent_hub_messages_total` | counter | Total messages processed |
-| `agent_hub_injections_total` | counter | Messages injected into sessions |
-| `agent_hub_sessions_oriented_total` | counter | Sessions that received orientation |
-| `agent_hub_active_agents` | gauge | Current registered agents |
-| `agent_hub_gc_runs_total` | counter | Garbage collection runs |
+### Counters
+
+| Metric | Description |
+|--------|-------------|
+| `agent_hub_messages_total` | Total messages processed |
+| `agent_hub_messages_failed_total` | Messages that failed to process |
+| `agent_hub_injections_total` | Messages injected into sessions |
+| `agent_hub_injections_retried_total` | Injection retries attempted |
+| `agent_hub_injections_failed_total` | Injections that failed after retries |
+| `agent_hub_sessions_oriented_total` | Sessions that received orientation |
+| `agent_hub_agents_auto_created_total` | Agents auto-registered from sessions |
+| `agent_hub_gc_runs_total` | Garbage collection runs |
+| `agent_hub_gc_sessions_cleaned_total` | Stale sessions cleaned up |
+| `agent_hub_gc_agents_cleaned_total` | Stale agents cleaned up |
+| `agent_hub_gc_messages_archived_total` | Messages archived during GC |
+| `agent_hub_cache_hits_total` | Session cache hits |
+| `agent_hub_cache_misses_total` | Session cache misses |
+
+### Gauges
+
+| Metric | Description |
+|--------|-------------|
+| `agent_hub_active_agents` | Current registered agents |
+| `agent_hub_oriented_sessions` | Sessions with active orientation |
+| `agent_hub_injection_queue_size` | Pending injections in queue |
+| `agent_hub_message_queue_size` | Pending messages in queue |
 
 ## Development
 
