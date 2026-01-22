@@ -2,15 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "release-please--*"
   pull_request:
     branches: [main]
   pull_request_target:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   lint:
-    if: github.event_name != 'pull_request_target' || github.actor == 'github-actions[bot]'
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      github.actor == 'github-actions[bot]' ||
+      github.actor == 'github-actions' ||
+      github.event.pull_request.user.login == 'github-actions[bot]' ||
+      github.event.pull_request.user.login == 'github-actions'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +41,12 @@ jobs:
         run: uv run ruff format --check .
 
   typecheck:
-    if: github.event_name != 'pull_request_target' || github.actor == 'github-actions[bot]'
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      github.actor == 'github-actions[bot]' ||
+      github.actor == 'github-actions' ||
+      github.event.pull_request.user.login == 'github-actions[bot]' ||
+      github.event.pull_request.user.login == 'github-actions'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +67,12 @@ jobs:
         continue-on-error: true  # Type hints are aspirational for now
 
   test:
-    if: github.event_name != 'pull_request_target' || github.actor == 'github-actions[bot]'
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      github.actor == 'github-actions[bot]' ||
+      github.actor == 'github-actions' ||
+      github.event.pull_request.user.login == 'github-actions[bot]' ||
+      github.event.pull_request.user.login == 'github-actions'
     runs-on: ubuntu-latest
     strategy:
       matrix:
