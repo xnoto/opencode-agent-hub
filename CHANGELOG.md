@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.2.1...v0.3.0) (2026-01-22)
+
+
+### Features
+
+* auto-update Homebrew tap ([fa7550a](https://github.com/xnoto/opencode-agent-hub/commit/fa7550a3e07a0c6ac704ba0164cb69fd4299df6a))
+
+
+### Bug Fixes
+
+* pass tag to publish workflow ([6928c91](https://github.com/xnoto/opencode-agent-hub/commit/6928c91c599f81ca24f4ff76d4379d479d568dda))
+* pass tag to publish workflow ([f25878d](https://github.com/xnoto/opencode-agent-hub/commit/f25878d9d614d77686123993602a0c486277283b))
+
 ## [0.2.1](https://github.com/xnoto/opencode-agent-hub/compare/v0.2.0...v0.2.1) (2026-01-22)
 
 
