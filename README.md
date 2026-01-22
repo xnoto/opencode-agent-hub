@@ -6,6 +6,45 @@ Enables multiple AI agents running in separate OpenCode sessions to communicate,
 
 > **Warning**: This software enables autonomous agent-to-agent communication which triggers LLM API calls. Use at your own risk. The authors are not responsible for any token usage, API costs, or other expenses incurred. Consider enabling [rate limiting](#rate-limiting-optional) to control costs.
 
+## Table of Contents
+
+- [Features](#features)
+- [How It Works](#how-it-works)
+  - [Session Discovery](#session-discovery)
+  - [Message Flow](#message-flow)
+  - [The Relay Server](#the-relay-server)
+  - [Coordination Flow](#coordination-flow)
+  - [Push Model (No Polling Required by Agents)](#push-model-no-polling-required-by-agents)
+  - [Session Lifecycle](#session-lifecycle)
+  - [Known Issues](#known-issues)
+    - [Injected Messages Not Visible in TUI](#injected-messages-not-visible-in-tui)
+    - [TUI May Show Continued Processing After Response](#tui-may-show-continued-processing-after-response)
+    - [Orientation Messages May Trigger Security Heuristics](#orientation-messages-may-trigger-security-heuristics)
+  - [Coordination Test Results (Jan 2026)](#coordination-test-results-jan-2026)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+  - [Homebrew (macOS)](#homebrew-macos)
+  - [PyPI](#pypi)
+  - [From source](#from-source)
+- [Running as a Service](#running-as-a-service)
+  - [macOS (launchd)](#macos-launchd)
+  - [Linux (systemd)](#linux-systemd)
+- [Usage](#usage)
+  - [Start the daemon](#start-the-daemon)
+  - [Monitor with the dashboard](#monitor-with-the-dashboard)
+  - [Run as standalone scripts (uv)](#run-as-standalone-scripts-uv)
+- [Configuration](#configuration)
+  - [Rate Limiting (Optional)](#rate-limiting-optional)
+  - [Coordinator (Optional)](#coordinator-optional)
+- [Directory Structure](#directory-structure)
+- [Message Format](#message-format)
+- [Integration with MCP](#integration-with-mcp)
+- [Metrics](#metrics)
+- [Development](#development)
+- [Acknowledgments](#acknowledgments)
+- [License](#license)
+
 ## Features
 
 - **Message Bus**: Filesystem-based message passing between agents via `~/.agent-hub/messages/`
@@ -18,7 +57,7 @@ Enables multiple AI agents running in separate OpenCode sessions to communicate,
 
 ## How It Works
 
-The daemon operates as a **message broker** between OpenCode sessions, using a local relay server to inject messages directly into agent conversations.
+The daemon operates as a **message broker** between OpenCode sessions, using a local relay server to inject messages directly into agent conversations and to **proactively encourage coordination** via a coordinator agent.
 
 ### Session Discovery
 
@@ -26,6 +65,7 @@ The daemon operates as a **message broker** between OpenCode sessions, using a l
 2. **Polls the relay API** (`GET /session`) every 5 seconds to discover active sessions
 3. **Auto-registers agents** based on each session's working directory (project path)
 4. **Injects an orientation message** into newly discovered sessions, informing the agent of its registered identity
+5. **Notifies the coordinator** to capture the agent's task and introduce related agents
 
 ### Message Flow
 
@@ -58,7 +98,30 @@ The daemon auto-starts `opencode serve --port 4096` which provides:
 - **Session listing**: `GET /session` - returns all active OpenCode sessions
 - **Message injection**: `POST /session/{id}/prompt_async` - injects a prompt that wakes the agent
 
-This relay server sees **all** OpenCode TUI instances on the machine, allowing the daemon to route messages to any session regardless of which terminal it's running in.
+This relay server sees **all** OpenCode TUI instances on the machine, allowing the daemon to route messages to any session regardless of which terminal it's running in. The coordinator relies on the relay server to inject **task capture prompts** and **introductions** that encourage agents to collaborate.
+
+### Coordination Flow
+
+The coordinator uses the relay server to proactively connect agents without requiring the user to manually broker introductions.
+
+```
+New Session         Daemon                 Coordinator             Other Agent
+    │                 │                        │                      │
+    │  OpenCode TUI    │                        │                      │
+    │ ────────────────>│                        │                      │
+    │                 │  notify NEW_AGENT       │                      │
+    │                 │ ───────────────────────>│                      │
+    │                 │                        │ ask: "What are you    │
+    │                 │                        │ working on?"          │
+    │                 │                        │ ─────────────────────>│
+    │                 │                        │                      │
+    │                 │                        │ analyze tasks         │
+    │                 │                        │ send introductions    │
+    │                 │                        │ ─────────────────────>│
+    │                 │                        │                      │
+```
+
+This keeps the coordination overhead low while still ensuring agents know who to talk to.
 
 ### Push Model (No Polling Required by Agents)
 
@@ -183,7 +246,26 @@ Restart OpenCode after adding the configuration.
 ### Homebrew (macOS)
 
 ```bash
+# Tap + install
+brew tap xnoto/opencode-agent-hub
+brew install opencode-agent-hub
+
+# Or one command
 brew install xnoto/opencode-agent-hub/opencode-agent-hub
+```
+
+Service + manual usage (matches the Homebrew tap docs):
+
+```bash
+# Start as a service
+brew services start opencode-agent-hub
+
+# Run manually
+agent-hub-daemon
+agent-hub-watch
+
+# Stop service
+brew services stop opencode-agent-hub
 ```
 
 ### PyPI
@@ -429,7 +511,7 @@ uv run pytest
 
 This project builds on the work of:
 
-- **[OpenCode](https://github.com/sst/opencode)** by [SST](https://github.com/sst) - The AI coding assistant this daemon integrates with
+- **[OpenCode](https://github.com/anomalyco/opencode)** by [anomalyco](https://github.com/anomalyco) - The AI coding assistant this daemon integrates with
 - **[agent-hub-mcp](https://github.com/gilbarbara/agent-hub-mcp)** by [@gilbarbara](https://github.com/gilbarbara) - The MCP server providing agent communication tools
 
 Thank you for making your work available to the community.

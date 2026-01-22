@@ -5,9 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  pull_request_target:
+    branches: [main]
 
 jobs:
   lint:
+    if: github.event_name != 'pull_request_target' || github.actor == 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +33,7 @@ jobs:
         run: uv run ruff format --check .
 
   typecheck:
+    if: github.event_name != 'pull_request_target' || github.actor == 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +54,7 @@ jobs:
         continue-on-error: true  # Type hints are aspirational for now
 
   test:
+    if: github.event_name != 'pull_request_target' || github.actor == 'github-actions[bot]'
     runs-on: ubuntu-latest
     strategy:
       matrix:
