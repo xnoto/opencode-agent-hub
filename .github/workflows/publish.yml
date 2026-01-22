@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Publish Release
 
 on:
   # Triggered by release-please when a release is created
@@ -120,24 +120,6 @@ jobs:
         with:
           name: dist
           path: dist/
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write  # Required for trusted publishing
-    steps:
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        # Uses trusted publishing - no API token needed
-        # Configure at: https://pypi.org/manage/project/opencode-agent-hub/settings/publishing/
 
   github-release:
     needs: build

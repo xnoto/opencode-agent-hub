@@ -25,7 +25,6 @@ Enables multiple AI agents running in separate OpenCode sessions to communicate,
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
   - [Homebrew (macOS)](#homebrew-macos)
-  - [PyPI](#pypi)
   - [From source](#from-source)
 - [Running as a Service](#running-as-a-service)
   - [macOS (launchd)](#macos-launchd)
@@ -270,16 +269,6 @@ agent-hub-watch
 
 # Stop service
 brew services stop opencode-agent-hub
-```
-
-### PyPI
-
-```bash
-# With uv (recommended)
-uv tool install opencode-agent-hub
-
-# With pipx
-pipx install opencode-agent-hub
 ```
 
 ### From source
