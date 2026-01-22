@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd user agent for agent-hub-daemon
+
+  Installation:
+    cp com.xnoto.agent-hub-daemon.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.xnoto.agent-hub-daemon.plist
+
+  Management:
+    launchctl list | grep agent-hub
+    launchctl stop com.xnoto.agent-hub-daemon
+    launchctl start com.xnoto.agent-hub-daemon
+    tail -f ~/Library/Logs/agent-hub-daemon.log
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.xnoto.agent-hub-daemon.plist
+    rm ~/Library/LaunchAgents/com.xnoto.agent-hub-daemon.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.xnoto.agent-hub-daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>$HOME/.local/bin/agent-hub-daemon</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>AGENT_HUB_DAEMON_LOG_LEVEL</key>
+        <string>INFO</string>
+        <key>OPENCODE_PORT</key>
+        <string>4096</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Note: launchd doesn't expand ~ in paths, but does expand for StandardOutPath/StandardErrorPath -->
+    <!-- If logs don't appear, use absolute path or check Console.app -->
+    <key>StandardOutPath</key>
+    <string>/tmp/agent-hub-daemon.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/agent-hub-daemon.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
