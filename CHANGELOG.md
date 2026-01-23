@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.1...v0.5.2) (2026-01-23)
+
+
+### Bug Fixes
+
+* use inputs.tag_name check for workflow_call condition ([b5f31c2](https://github.com/xnoto/opencode-agent-hub/commit/b5f31c2dba1b660c361e4353d55bca392c31e57f))
+* use inputs.tag_name check instead of event_name for workflow_call ([6c04bb4](https://github.com/xnoto/opencode-agent-hub/commit/6c04bb4a411cae88e99f0e4b4f6af64f96e59f78))
+
 ## [0.5.1](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.0...v0.5.1) (2026-01-23)
 
 
