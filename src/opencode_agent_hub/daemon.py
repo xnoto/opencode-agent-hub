@@ -1608,7 +1608,19 @@ def find_daemon_executable() -> str:
 
 
 def install_systemd_service() -> bool:
-    """Install and start the systemd user service."""
+    """Install and start the systemd user service (Linux only)."""
+    if sys.platform != "linux":
+        print("Error: --install-service is only supported on Linux.", file=sys.stderr)
+        print()
+        if sys.platform == "darwin":
+            print("On macOS, install via Homebrew instead:")
+            print("  brew install xnoto/tap/opencode-agent-hub")
+            print("  brew services start opencode-agent-hub")
+        else:
+            print(f"Platform '{sys.platform}' is not supported for service installation.")
+            print("Run the daemon manually or create a service configuration for your platform.")
+        return False
+
     service_dir = Path.home() / ".config/systemd/user"
     service_file = service_dir / "agent-hub-daemon.service"
 
@@ -1661,7 +1673,18 @@ def install_systemd_service() -> bool:
 
 
 def uninstall_systemd_service() -> bool:
-    """Stop, disable, and remove the systemd user service."""
+    """Stop, disable, and remove the systemd user service (Linux only)."""
+    if sys.platform != "linux":
+        print("Error: --uninstall-service is only supported on Linux.", file=sys.stderr)
+        print()
+        if sys.platform == "darwin":
+            print("On macOS, uninstall via Homebrew:")
+            print("  brew services stop opencode-agent-hub")
+            print("  brew uninstall opencode-agent-hub")
+        else:
+            print(f"Platform '{sys.platform}' is not supported for service uninstallation.")
+        return False
+
     service_file = Path.home() / ".config/systemd/user/agent-hub-daemon.service"
 
     subprocess.run(
