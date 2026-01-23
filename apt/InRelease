@@ -1,0 +1,36 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Date: Fri, 23 Jan 2026 06:06:01 +0000
+MD5Sum:
+ 4e48af3d30fb778a6d6d24dbc57df8ba              739 Packages
+ 7667cbe9fe5888c21a69360bf033dec8              501 Packages.gz
+ 55c57db68c072b89e097ea775025e2f6               38 Release
+SHA1:
+ 8500c06eb4cc215a5b7581634a447982bc10a964              739 Packages
+ 924dfbf57527f210e6435a9d78aeaaff2b070636              501 Packages.gz
+ b020e7dba7bdd87aa3dc89ab8af833ac1e1a4ab3               38 Release
+SHA256:
+ 6c2d00c5a86c11a19ddd7263ca19f6a91dd32532d1c62495afcc0148673a9281              739 Packages
+ 4f5ae522154a2259ab3298e90eb0563b38d3bfe120b2b146bf62bf29b5855882              501 Packages.gz
+ 091b0e3d91c00a62cbe499504a775b0eb453a641a681a13e7b4e0d08092e38c1               38 Release
+SHA512:
+ 22c7099743155217763e0c483b3be78b020446a307d24f25dbd2c218313d66d7714dad17e06654bdde7deb7d3cd93ce37ead2b1d0e1bfcd760de104a9da34425              739 Packages
+ 6e872a8e44f1f6cbf672d32c2effaf2605bca0120fac1116d37cb63b6997a75081da7fd4ff06f25d818c0d30810ab26bd5e3c26a3b10ea21372e4ef0e0b00671              501 Packages.gz
+ f4a8a109480124f971ca9c3bf0bc90a999670a3935037522cd85e7e8803e99dc65e2145f5ae9e05d8c4c9caaef8fc1fd283e7c254794bb7e760c6f4ea28785de               38 Release
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEOWh3v8FAOue/DJHMMbFv3ny0o7gFAmlzD8oACgkQMbFv3ny0
+o7hfChAAt4/n+hu2hVZWqa7G10QInnvh3ZJi/ubvLeD74XVkmLFiRBM56/vmqC2Y
+vZSzDKwEbHzAkBF5J6mm+aE4OCDmWmcIRzeZAWbxXUECLFdJ0niGKBSv5sW8D0ia
+HvohnAivadH/2lsJsfmjw5NaiD2Rb8gUGzoNufguPNiwvzVLOgQlFXzsa/2B6FsO
++LybfSlLMqR/wEz4bfRUN/HqySLwIvJXBJcPHUD3qVCyOl8dfDf8G/lnfzbFfDkP
+PILHtS19pxMLHo0K0WRDDwyVUo8mQQZxIB+GjaBGVZUptbMyoxow6+LCs7NR1vQW
+yl6VNJrLcWiePoPPlb3rwRc59NmAzWmdwKYLOf0exVfn8EhiK8/GLNCDtBFhQwFh
+6YDbI46SumO/TAddgxtPxmnIHjrIJ8BmZCqQPo7kHId4zniUJEuFMOW00yRlcTra
+VWcm0CdOWuX/aGCWOzVxXA03+wtOf9JMeiJoJ1T+LYrhI81PLzMhYgfymxVYU+uB
+CxshEj7Nm8nCeWdC5by1+eQgIytyfxPzHDo/i4l0T3LFz/P3DMDnCpXSvfUshEJg
+xaabMqhZR2+5aYT9vKpV6+0H/8OtPoLOjyPEXzYzyVLdPKKKgIbBgBJ1KFQkP+fx
+0T0VDRxuCKaJkiCho1fqXkkD7ioxTmDyHgKQViVZcy/IjdJ+nB4=
+=+orB
+-----END PGP SIGNATURE-----

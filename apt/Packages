@@ -1,0 +1,18 @@
+Package: opencode-agent-hub
+Version: 0.5.4-1
+Architecture: all
+Maintainer: xnoto <https://github.com/xnoto>
+Installed-Size: 135
+Depends: python3-requests, python3-watchdog, python3:any, init-system-helpers (>= 1.52)
+Filename: ./opencode-agent-hub_0.5.4-1_all.deb
+Size: 34384
+MD5sum: b9eb05b8e3efef7399b3e2744d421011
+SHA1: 34757384e39ee5dddb5f2a55c435791924f70fff
+SHA256: 820bbe5917f138e4337632069dfd423a00c3af1b244f489bc2bd4ebcbc058af9
+Section: devel
+Priority: optional
+Homepage: https://github.com/xnoto/opencode-agent-hub
+Description: Multi-agent coordination daemon and tools for OpenCode
+ Enables multiple AI agents running in separate OpenCode sessions to
+ communicate, collaborate, and coordinate work through a shared message bus.
+

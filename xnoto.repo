@@ -1,0 +1,6 @@
+[xnoto]
+name=xnoto packages
+baseurl=https://xnoto.github.io/opencode-agent-hub/rpm
+enabled=1
+gpgcheck=1
+gpgkey=https://xnoto.github.io/opencode-agent-hub/KEY.gpg
