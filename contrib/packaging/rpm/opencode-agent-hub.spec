@@ -34,14 +34,14 @@ Enables multiple AI agents to communicate and coordinate through a shared messag
 %pyproject_save_files %{pkg_name}
 
 install -Dpm 644 contrib/systemd/agent-hub-daemon.service \
-    %{buildroot}%{_userunitdir}/agent-hub-daemon.service
+    %{buildroot}/usr/lib/systemd/user/agent-hub-daemon.service
 
 %files -f %{pyproject_files}
 %license LICENSE
 %doc README.md
 %{_bindir}/agent-hub-daemon
 %{_bindir}/agent-hub-watch
-%{_userunitdir}/agent-hub-daemon.service
+/usr/lib/systemd/user/agent-hub-daemon.service
 
 %changelog
 * Thu Jan 22 2026 xnoto - 0.4.0-1
