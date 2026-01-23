@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.0...v0.5.1) (2026-01-23)
+
+
+### Bug Fixes
+
+* chain release-packages workflow from release-please ([25a136f](https://github.com/xnoto/opencode-agent-hub/commit/25a136f5355c911838031847d1ade1a973491433))
+* chain release-packages workflow from release-please ([5a600d3](https://github.com/xnoto/opencode-agent-hub/commit/5a600d3ebc527fdd6ac7dfcb7f6454cb3215c59e))
+
 ## [0.5.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.4.0...v0.5.0) (2026-01-23)
 
 
