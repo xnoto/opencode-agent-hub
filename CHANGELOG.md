@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.4](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.3...v0.3.4) (2026-01-23)
+
+
+### Bug Fixes
+
+* publish to PyPI with PAT ([142a981](https://github.com/xnoto/opencode-agent-hub/commit/142a981bc0a0fb15431b9bbeef83961f0e5c1a98))
+* publish to PyPI with PAT ([fa9d9f8](https://github.com/xnoto/opencode-agent-hub/commit/fa9d9f8bfd63e9b204638dc15869aff44bcb514b))
+
 ## [0.3.3](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.2...v0.3.3) (2026-01-23)
 
 
