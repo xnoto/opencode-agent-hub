@@ -162,3 +162,19 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: dist/*
           generate_release_notes: true
+
+  publish:
+    needs: github-release
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

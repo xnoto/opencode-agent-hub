@@ -77,9 +77,10 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import requests
-from watchdog.events import FileCreatedEvent, FileSystemEventHandler
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 # Configuration
@@ -1400,10 +1401,10 @@ def process_message_file(path: Path, agents: dict[str, dict]) -> None:
 class MessageHandler(FileSystemEventHandler):
     """Handle new message files in ~/.agent-hub/messages/."""
 
-    def on_created(self, event: FileCreatedEvent) -> None:
+    def on_created(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
-        path = Path(event.src_path)
+        path = Path(cast(str, event.src_path))
         if path.suffix != ".json":
             return
         # Ignore archive directory
@@ -1422,11 +1423,11 @@ class SessionHandler(FileSystemEventHandler):
     This prevents re-orienting existing sessions on every file update.
     """
 
-    def on_created(self, event: FileCreatedEvent) -> None:
+    def on_created(self, event: FileSystemEvent) -> None:
         """Only orient when a NEW session file is created."""
         if event.is_directory:
             return
-        path = Path(event.src_path)
+        path = Path(cast(str, event.src_path))
         if path.suffix != ".json":
             return
         if not path.name.startswith("ses_"):
@@ -1443,7 +1444,7 @@ class AgentHandler(FileSystemEventHandler):
     def __init__(self, agents: dict[str, dict]):
         self.agents = agents
 
-    def on_created(self, event: FileCreatedEvent) -> None:
+    def on_created(self, event: FileSystemEvent) -> None:
         self._reload()
 
     def on_modified(self, event) -> None:
@@ -1525,18 +1526,19 @@ def main():
 
     observer.start()
 
+    # Shutdown event for coordinating thread termination
+    shutdown_event = threading.Event()
+
     # Handle signals for graceful shutdown
     def shutdown_handler(signum, frame):
         log.info(f"Received signal {signum}, shutting down...")
+        shutdown_event.set()
         observer.stop()
         stop_coordinator()
         stop_hub_server()
 
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
-
-    # Shutdown event for coordinating thread termination
-    shutdown_event = threading.Event()
 
     def session_poller():
         """Background thread that polls for new active sessions."""

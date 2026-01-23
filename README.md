@@ -23,8 +23,11 @@ Enables multiple AI agents running in separate OpenCode sessions to communicate,
   - [Coordination Test Results (Jan 2026)](#coordination-test-results-jan-2026)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
+- [Quickstart](#quickstart)
 - [Installation](#installation)
   - [Homebrew (macOS)](#homebrew-macos)
+  - [uv (PyPI)](#uv-pypi)
+  - [pipx (PyPI)](#pipx-pypi)
   - [From source](#from-source)
 - [Running as a Service](#running-as-a-service)
   - [macOS (launchd)](#macos-launchd)
@@ -244,6 +247,36 @@ Add to your `~/.config/opencode/config.json`:
 
 Restart OpenCode after adding the configuration.
 
+## Quickstart
+
+1. Install (pick one):
+
+```bash
+# Homebrew (macOS)
+brew tap xnoto/opencode-agent-hub
+brew install opencode-agent-hub
+
+# uv (PyPI)
+uv tool install opencode-agent-hub
+
+# pipx (PyPI)
+pipx install opencode-agent-hub
+```
+
+2. Start the daemon:
+
+```bash
+agent-hub-daemon
+```
+
+3. Monitor with the dashboard:
+
+```bash
+agent-hub-watch
+```
+
+4. (Optional) Run as a service (see [Running as a Service](#running-as-a-service)).
+
 ## Installation
 
 ### Homebrew (macOS)
@@ -269,6 +302,18 @@ agent-hub-watch
 
 # Stop service
 brew services stop opencode-agent-hub
+```
+
+### uv (PyPI)
+
+```bash
+uv tool install opencode-agent-hub
+```
+
+### pipx (PyPI)
+
+```bash
+pipx install opencode-agent-hub
 ```
 
 ### From source
