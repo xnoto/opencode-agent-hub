@@ -658,6 +658,113 @@ def run_gc(agents: dict[str, dict]) -> None:
 
 
 # =============================================================================
+# Preflight Checks
+# =============================================================================
+
+
+class PreflightError(Exception):
+    """Raised when preflight checks fail."""
+
+    pass
+
+
+def check_agent_hub_mcp_configured() -> bool:
+    """Verify agent-hub MCP is configured and enabled in OpenCode.
+
+    Uses `opencode debug config` to get the resolved configuration,
+    which handles all config file locations automatically.
+
+    Returns True if configured and enabled, raises PreflightError otherwise.
+    """
+    opencode_bin = shutil.which("opencode")
+    if not opencode_bin:
+        raise PreflightError(
+            "opencode binary not found in PATH.\n\n"
+            "To fix:\n"
+            "  1. Install OpenCode: https://github.com/sst/opencode\n"
+            "  2. Ensure 'opencode' is in your PATH\n"
+        )
+
+    # Get config file location for error messages
+    try:
+        paths_result = subprocess.run(
+            [opencode_bin, "debug", "paths"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        config_path = "your OpenCode config file (run 'opencode debug paths' to find it)"
+        if paths_result.returncode == 0:
+            for line in paths_result.stdout.splitlines():
+                # Format is: "config     /path/to/config"
+                if line.lower().startswith("config"):
+                    parts = line.split(None, 1)  # Split on whitespace, max 2 parts
+                    if len(parts) == 2:
+                        config_path = parts[1].strip() + "/opencode.json"
+                    break
+    except (subprocess.TimeoutExpired, OSError):
+        config_path = "your OpenCode config file (run 'opencode debug paths' to find it)"
+
+    try:
+        result = subprocess.run(
+            [opencode_bin, "debug", "config"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise PreflightError("Timed out getting OpenCode config") from e
+    except OSError as e:
+        raise PreflightError(f"Failed to run opencode: {e}") from e
+
+    if result.returncode != 0:
+        raise PreflightError(
+            f"opencode debug config failed (exit {result.returncode}): {result.stderr}"
+        )
+
+    try:
+        config = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise PreflightError(f"Failed to parse OpenCode config: {e}") from e
+
+    mcp_config = config.get("mcp", {})
+    agent_hub = mcp_config.get("agent-hub")
+
+    if agent_hub is None:
+        raise PreflightError(
+            "agent-hub MCP is not configured in OpenCode.\n\n"
+            "The daemon requires agent-hub-mcp to enable agent communication.\n\n"
+            f"To fix, add to {config_path}:\n\n"
+            '  "mcp": {{\n'
+            '    "agent-hub": {{\n'
+            '      "type": "local",\n'
+            '      "command": ["npx", "-y", "agent-hub-mcp@latest"],\n'
+            '      "enabled": true\n'
+            "    }}\n"
+            "  }}\n\n"
+            "Then restart OpenCode.\n\n"
+            "More info: https://github.com/gilbarbara/agent-hub-mcp"
+        )
+
+    if not agent_hub.get("enabled", False):
+        raise PreflightError(
+            "agent-hub MCP is configured but disabled.\n\n"
+            f"To fix, edit {config_path} and change enabled to true:\n\n"
+            '  "mcp": {{\n'
+            '    "agent-hub": {{\n'
+            '      "type": "local",\n'
+            '      "command": ["npx", "-y", "agent-hub-mcp@latest"],\n'
+            '      "enabled": true\n'
+            "    }}\n"
+            "  }}\n\n"
+            "Then restart OpenCode."
+        )
+
+    log.info("Preflight: agent-hub MCP configured and enabled")
+    return True
+
+
+# =============================================================================
 # Hub Server Management
 # =============================================================================
 
@@ -1453,6 +1560,13 @@ class AgentHandler(FileSystemEventHandler):
 
 
 def main():
+    # Preflight: verify agent-hub MCP is configured before starting
+    try:
+        check_agent_hub_mcp_configured()
+    except PreflightError as e:
+        log.error(f"Preflight check failed: {e}")
+        raise SystemExit(1) from None
+
     # Ensure directories exist
     MESSAGES_DIR.mkdir(parents=True, exist_ok=True)
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)

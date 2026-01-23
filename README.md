@@ -1,6 +1,6 @@
 # opencode-agent-hub
 
-Multi-agent coordination daemon and tools for [OpenCode](https://github.com/sst/opencode).
+Multi-agent coordination daemon and tools for [OpenCode](https://github.com/anomalyco/opencode).
 
 Enables multiple AI agents running in separate OpenCode sessions to communicate, collaborate, and coordinate work through a shared message bus.
 
@@ -231,7 +231,18 @@ Observed a minimal coordination run with two agents (frontend + backend) and a c
 
 This daemon requires [agent-hub-mcp](https://github.com/gilbarbara/agent-hub-mcp) by [@gilbarbara](https://github.com/gilbarbara) to be configured in OpenCode. This MCP server provides the tools agents use to send messages.
 
-Add to your `~/.config/opencode/config.json`:
+**The daemon will fail to start if agent-hub MCP is not configured.** This is intentional - without it, agents cannot communicate.
+
+### Find your OpenCode config location
+
+```bash
+opencode debug paths
+# Look for the "config" line, e.g.: config /home/user/.config/opencode
+```
+
+### Add agent-hub MCP to your config
+
+Edit `opencode.json` in your config directory:
 
 ```json
 {
@@ -243,6 +254,13 @@ Add to your `~/.config/opencode/config.json`:
     }
   }
 }
+```
+
+### Verify configuration
+
+```bash
+opencode mcp list
+# Should show: ✓ agent-hub connected
 ```
 
 Restart OpenCode after adding the configuration.
@@ -368,10 +386,13 @@ agent-hub-daemon
 ```
 
 The daemon will:
-1. Start an OpenCode hub server on port 4096 (if not already running)
-2. Watch `~/.agent-hub/messages/` for new message files
-3. Auto-register agents for any OpenCode session it discovers
-4. Inject messages into the appropriate sessions
+1. **Verify agent-hub MCP is configured** (exits with instructions if not)
+2. Start an OpenCode hub server on port 4096 (if not already running)
+3. Watch `~/.agent-hub/messages/` for new message files
+4. Auto-register agents for any OpenCode session it discovers
+5. Inject messages into the appropriate sessions
+
+> **Note**: If agent-hub MCP is not configured, the daemon will exit immediately with clear instructions on how to fix it. See [Prerequisites](#prerequisites).
 
 ### Monitor with the dashboard
 
