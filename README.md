@@ -274,8 +274,8 @@ Restart OpenCode after adding the configuration.
 # macOS (Homebrew)
 brew install xnoto/tap/opencode-agent-hub
 
-# Linux (from GitHub releases)
-# Download .rpm or .deb from https://github.com/xnoto/opencode-agent-hub/releases
+# Debian/Ubuntu - see Installation section for full setup
+# Fedora/RHEL - see Installation section for full setup
 
 # Cross-platform (PyPI)
 uv tool install opencode-agent-hub
@@ -304,21 +304,39 @@ agent-hub-watch
 brew install xnoto/tap/opencode-agent-hub
 ```
 
-### Linux Packages
+### Linux Packages (Repository)
 
-Download from [GitHub Releases](https://github.com/xnoto/opencode-agent-hub/releases):
+**Debian / Ubuntu:**
 
 ```bash
-# Fedora/RHEL
-sudo dnf install opencode-agent-hub-*.rpm
+# Add GPG key
+curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/xnoto.gpg
 
-# Debian/Ubuntu
-sudo dpkg -i opencode-agent-hub_*.deb
+# Add repository
+echo "deb [signed-by=/etc/apt/keyrings/xnoto.gpg] https://xnoto.github.io/opencode-agent-hub/apt ./" | sudo tee /etc/apt/sources.list.d/xnoto.list
 
-# Arch Linux (AUR)
-# Use your preferred AUR helper, e.g.:
+# Install
+sudo apt update
+sudo apt install opencode-agent-hub
+```
+
+**Fedora / RHEL:**
+
+```bash
+# Add repository
+sudo curl -o /etc/yum.repos.d/xnoto.repo https://xnoto.github.io/opencode-agent-hub/xnoto.repo
+
+# Install
+sudo dnf install opencode-agent-hub
+```
+
+**Arch Linux (AUR):**
+
+```bash
 yay -S opencode-agent-hub
 ```
+
+**Manual download:** See [GitHub Releases](https://github.com/xnoto/opencode-agent-hub/releases) for direct .deb/.rpm downloads.
 
 ### uv (PyPI)
 

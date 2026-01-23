@@ -160,3 +160,170 @@ jobs:
             artifacts/rpm-packages/*
             artifacts/deb-packages/*
             artifacts/aur-packages/*
+
+  publish-repo:
+    runs-on: ubuntu-latest
+    needs: [build-python, build-rpm, build-deb]
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Check GPG key expiry
+        run: |
+          # Key expires 2026-05-08
+          EXPIRY_DATE="2026-05-08"
+          EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s)
+          NOW_EPOCH=$(date +%s)
+          DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
+          
+          echo "GPG key expires: $EXPIRY_DATE ($DAYS_LEFT days remaining)"
+          
+          if [ "$DAYS_LEFT" -lt 30 ]; then
+            echo "::warning::GPG signing key expires in $DAYS_LEFT days! Please rotate the key soon."
+          fi
+          
+          if [ "$DAYS_LEFT" -lt 0 ]; then
+            echo "::error::GPG signing key has expired! Package signing will fail."
+            exit 1
+          fi
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          # Trust the key
+          KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
+          echo "${KEY_ID}:6:" | gpg --import-ownertrust
+          echo "GPG_KEY_ID=$KEY_ID" >> $GITHUB_ENV
+
+      - name: Install repo tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils createrepo-c
+
+      - name: Build APT repository
+        run: |
+          mkdir -p repo/apt
+          cp artifacts/deb-packages/*.deb repo/apt/
+          cd repo/apt
+          
+          # Generate package index
+          dpkg-scanpackages --multiversion . > Packages
+          gzip -k -f Packages
+          
+          # Generate release file
+          apt-ftparchive release . > Release
+          
+          # Sign release
+          if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
+            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 \
+              --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
+            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 \
+              --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
+          else
+            gpg --batch --yes --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
+            gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
+          fi
+
+      - name: Build RPM repository
+        run: |
+          mkdir -p repo/rpm
+          cp artifacts/rpm-packages/*.rpm repo/rpm/
+          cd repo/rpm
+          
+          # Generate repo metadata
+          createrepo_c .
+          
+          # Sign repodata
+          if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
+            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 \
+              --default-key "$GPG_KEY_ID" --detach-sign --armor repodata/repomd.xml
+          else
+            gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor repodata/repomd.xml
+          fi
+
+      - name: Export public key
+        run: |
+          gpg --armor --export "$GPG_KEY_ID" > repo/KEY.gpg
+
+      - name: Create repo config files
+        run: |
+          # APT sources list
+          cat > repo/xnoto.list << 'EOF'
+          deb [signed-by=/etc/apt/keyrings/xnoto.gpg] https://xnoto.github.io/opencode-agent-hub/apt ./
+          EOF
+          
+          # DNF/YUM repo file
+          cat > repo/xnoto.repo << 'EOF'
+          [xnoto]
+          name=xnoto packages
+          baseurl=https://xnoto.github.io/opencode-agent-hub/rpm
+          enabled=1
+          gpgcheck=1
+          gpgkey=https://xnoto.github.io/opencode-agent-hub/KEY.gpg
+          EOF
+
+      - name: Create index page
+        run: |
+          cat > repo/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>opencode-agent-hub packages</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+              pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; }
+              h2 { margin-top: 2rem; }
+            </style>
+          </head>
+          <body>
+            <h1>opencode-agent-hub</h1>
+            <p>Linux package repository for <a href="https://github.com/xnoto/opencode-agent-hub">opencode-agent-hub</a>.</p>
+            
+            <h2>Debian / Ubuntu (APT)</h2>
+            <pre>
+          # Add GPG key
+          curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/xnoto.gpg
+
+          # Add repository
+          echo "deb [signed-by=/etc/apt/keyrings/xnoto.gpg] https://xnoto.github.io/opencode-agent-hub/apt ./" | sudo tee /etc/apt/sources.list.d/xnoto.list
+
+          # Install
+          sudo apt update
+          sudo apt install opencode-agent-hub
+            </pre>
+            
+            <h2>Fedora / RHEL (DNF)</h2>
+            <pre>
+          # Add repository
+          sudo curl -o /etc/yum.repos.d/xnoto.repo https://xnoto.github.io/opencode-agent-hub/xnoto.repo
+
+          # Install
+          sudo dnf install opencode-agent-hub
+            </pre>
+            
+            <h2>Arch Linux (AUR)</h2>
+            <pre>
+          yay -S opencode-agent-hub
+            </pre>
+            
+            <h2>Direct Downloads</h2>
+            <p>See <a href="https://github.com/xnoto/opencode-agent-hub/releases">GitHub Releases</a> for direct package downloads.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./repo
+          destination_dir: .
+          keep_files: false
