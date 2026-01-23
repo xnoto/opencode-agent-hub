@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.4.0...v0.5.0) (2026-01-23)
+
+
+### Features
+
+* add GitHub Pages package repository ([4c55392](https://github.com/xnoto/opencode-agent-hub/commit/4c5539291a8253bef91b4bed0e28089ba506a3a3))
+* add Linux packaging support and --install-service flag ([fdce08d](https://github.com/xnoto/opencode-agent-hub/commit/fdce08d9c3fce3877a245d98193a42ba81e4e899))
+* add Linux packaging support and --install-service flag ([a9e713d](https://github.com/xnoto/opencode-agent-hub/commit/a9e713df1b66d8062ad432089cd102df3d9337dc))
+* add platform check for service installation flags ([39938b2](https://github.com/xnoto/opencode-agent-hub/commit/39938b2c500985514b924c6136e2658acb72cb64))
+
+
+### Bug Fixes
+
+* improve preflight error messages and relax package deps ([7832285](https://github.com/xnoto/opencode-agent-hub/commit/78322853ead9f23b61eba2231d40bfd69857ad97))
+* resolve RPM and DEB build failures ([9b2e946](https://github.com/xnoto/opencode-agent-hub/commit/9b2e9467d9bcfdf860b6d52f72eb00c18f7a005e))
+
 ## [0.4.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.5...v0.4.0) (2026-01-23)
 
 
