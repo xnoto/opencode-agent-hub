@@ -218,7 +218,7 @@ jobs:
       - name: Install repo tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev apt-utils createrepo-c
+          sudo apt-get install -y dpkg-dev apt-utils createrepo-c rpm
 
       - name: Build APT repository
         run: |
@@ -249,6 +249,21 @@ jobs:
           mkdir -p repo/rpm
           cp artifacts/rpm-packages/*.rpm repo/rpm/
           cd repo/rpm
+          
+          # Configure RPM signing macros
+          cat > ~/.rpmmacros << EOF
+          %_gpg_name $GPG_KEY_ID
+          %__gpg_sign_cmd %{__gpg} gpg --batch --yes --pinentry-mode loopback --no-armor %{?_gpg_sign_cmd_extra_args} -u "%{_gpg_name}" -sbo %{__signature_filename} %{__plaintext_filename}
+          EOF
+          
+          # Sign RPM packages
+          for rpm in *.rpm; do
+            if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
+              echo "${{ secrets.GPG_PASSPHRASE }}" | rpmsign --addsign "$rpm"
+            else
+              rpmsign --addsign "$rpm"
+            fi
+          done
           
           # Generate repo metadata
           createrepo_c .
