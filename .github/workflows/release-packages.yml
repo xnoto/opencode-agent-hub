@@ -1,0 +1,162 @@
+name: Build Release Packages
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - 'contrib/packaging/**'
+      - '.github/workflows/release-packages.yml'
+      - 'pyproject.toml'
+      - 'src/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 0.4.0)'
+        required: false
+
+jobs:
+  build-python:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION=$(grep '^version' pyproject.toml | head -1 | cut -d'"' -f2)
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
+
+      - uses: astral-sh/setup-uv@v4
+      - run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+  build-rpm:
+    runs-on: ubuntu-latest
+    needs: build-python
+    container:
+      image: fedora:42
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          dnf install -y rpm-build python3-devel python3-pip python3-wheel \
+            python3-hatchling python3-requests python3-watchdog
+
+      - name: Create source tarball
+        run: |
+          VERSION="${{ needs.build-python.outputs.version }}"
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          # Create tarball with correct naming for rpmbuild
+          tar --transform "s,^,opencode-agent-hub-${VERSION}/," \
+              -czf ~/rpmbuild/SOURCES/opencode-agent-hub-${VERSION}.tar.gz \
+              src pyproject.toml README.md LICENSE contrib
+
+      - name: Update and copy spec
+        run: |
+          VERSION="${{ needs.build-python.outputs.version }}"
+          sed -i "s/^Version:.*/Version:        ${VERSION}/" contrib/packaging/rpm/opencode-agent-hub.spec
+          # Use GitHub tarball URL format for Source0
+          sed -i "s|^Source0:.*|Source0:        opencode-agent-hub-${VERSION}.tar.gz|" contrib/packaging/rpm/opencode-agent-hub.spec
+          cp contrib/packaging/rpm/opencode-agent-hub.spec ~/rpmbuild/SPECS/
+
+      - name: Build RPM
+        run: |
+          rpmbuild -bb ~/rpmbuild/SPECS/opencode-agent-hub.spec
+          mkdir -p rpms
+          find ~/rpmbuild/RPMS -name "*.rpm" -exec cp {} rpms/ \;
+          ls -la rpms/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-packages
+          path: rpms/
+          if-no-files-found: error
+
+  build-deb:
+    runs-on: ubuntu-latest
+    needs: build-python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debhelper dh-python python3-all \
+            python3-hatchling pybuild-plugin-pyproject devscripts \
+            python3-requests python3-watchdog
+
+      - name: Prepare debian directory
+        run: |
+          VERSION="${{ needs.build-python.outputs.version }}"
+          cp -r contrib/packaging/debian .
+          # Update changelog version
+          sed -i "1s/([^)]*)/($VERSION-1)/" debian/changelog
+
+      - name: Build DEB
+        run: |
+          dpkg-buildpackage -us -uc -b
+          mkdir -p debs
+          find .. -maxdepth 1 -name "*.deb" -exec cp {} debs/ \;
+          ls -la debs/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-packages
+          path: debs/
+          if-no-files-found: error
+
+  build-aur:
+    runs-on: ubuntu-latest
+    needs: build-python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update PKGBUILD version
+        run: |
+          VERSION="${{ needs.build-python.outputs.version }}"
+          sed -i "s/^pkgver=.*/pkgver=$VERSION/" contrib/packaging/aur/PKGBUILD
+          mkdir -p aur
+          cp contrib/packaging/aur/PKGBUILD aur/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aur-packages
+          path: aur/
+
+  upload-release:
+    runs-on: ubuntu-latest
+    needs: [build-python, build-rpm, build-deb, build-aur]
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f -ls
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/python-dist/*
+            artifacts/rpm-packages/*
+            artifacts/deb-packages/*
+            artifacts/aur-packages/*

@@ -1,0 +1,7 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: opencode-agent-hub
+Source: https://github.com/xnoto/opencode-agent-hub
+
+Files: *
+Copyright: 2025-2026 xnoto
+License: MIT
