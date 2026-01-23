@@ -75,23 +75,23 @@ The daemon operates as a **message broker** between OpenCode sessions, using a l
 When Agent A sends a message to Agent B:
 
 ```
-Agent A                    Daemon                      Agent B
-   │                         │                            │
-   │  write JSON to          │                            │
-   │  ~/.agent-hub/messages/ │                            │
-   │ ───────────────────────>│                            │
-   │                         │  detect new file           │
-   │                         │  (watchdog)                │
-   │                         │                            │
-   │                         │  lookup Agent B's session  │
-   │                         │  via relay API             │
-   │                         │                            │
-   │                         │  POST /session/{id}/prompt │
-   │                         │ ──────────────────────────>│
-   │                         │                            │
-   │                         │                   Agent B wakes,
-   │                         │                   sees message with
-   │                         │                   response instructions
+Agent A                      Daemon                        Agent B
+   │                            │                             │
+   │  write JSON to             │                             │
+   │  ~/.agent-hub/messages/    │                             │
+   │ ──────────────────────────>│                             │
+   │                            │  detect new file            │
+   │                            │  (watchdog)                 │
+   │                            │                             │
+   │                            │  lookup Agent B's session   │
+   │                            │  via relay API              │
+   │                            │                             │
+   │                            │  POST /session/{id}/prompt  │
+   │                            │ ───────────────────────────>│
+   │                            │                             │
+   │                            │                    Agent B wakes,
+   │                            │                    sees message with
+   │                            │                    response instructions
 ```
 
 ### The Relay Server
@@ -108,20 +108,20 @@ This relay server sees **all** OpenCode TUI instances on the machine, allowing t
 The coordinator uses the relay server to proactively connect agents without requiring the user to manually broker introductions.
 
 ```
-New Session         Daemon                 Coordinator             Other Agent
-    │                 │                        │                      │
-    │  OpenCode TUI    │                        │                      │
-    │ ────────────────>│                        │                      │
-    │                 │  notify NEW_AGENT       │                      │
-    │                 │ ───────────────────────>│                      │
-    │                 │                        │ ask: "What are you    │
-    │                 │                        │ working on?"          │
-    │                 │                        │ ─────────────────────>│
-    │                 │                        │                      │
-    │                 │                        │ analyze tasks         │
-    │                 │                        │ send introductions    │
-    │                 │                        │ ─────────────────────>│
-    │                 │                        │                      │
+New Session            Daemon                Coordinator            Other Agent
+     │                    │                       │                       │
+     │  OpenCode TUI      │                       │                       │
+     │ ──────────────────>│                       │                       │
+     │                    │  notify NEW_AGENT     │                       │
+     │                    │ ──────────────────────>                       │
+     │                    │                       │  ask: "What are you   │
+     │                    │                       │  working on?"         │
+     │                    │                       │ ──────────────────────>
+     │                    │                       │                       │
+     │                    │                       │  analyze tasks        │
+     │                    │                       │  send introductions   │
+     │                    │                       │ ──────────────────────>
+     │                    │                       │                       │
 ```
 
 This keeps the coordination overhead low while still ensuring agents know who to talk to.
@@ -203,29 +203,29 @@ Observed a minimal coordination run with two agents (frontend + backend) and a c
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         agent-hub-daemon                             │
-│                                                                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │
-│  │ File Watcher │  │ Session Poll │  │  GC Worker   │               │
-│  │  (watchdog)  │  │   (5s loop)  │  │  (60s loop)  │               │
-│  └──────┬───────┘  └──────┬───────┘  └──────────────┘               │
-│         │                 │                                          │
-│         │  new message    │  new session                             │
-│         ▼                 ▼                                          │
-│  ┌──────────────────────────────────┐                               │
-│  │      Message Processing Queue     │                               │
-│  │  (async workers with retries)     │                               │
-│  └──────────────┬───────────────────┘                               │
-│                 │                                                    │
-│                 │ POST /session/{id}/prompt_async                    │
-│                 ▼                                                    │
-│  ┌──────────────────────────────────┐    ┌────────────────────────┐ │
-│  │   OpenCode Relay Server (4096)   │───▶│  OpenCode Sessions     │ │
-│  │   - Lists all active sessions    │    │  (TUI instances)       │ │
-│  │   - Injects prompts into any     │    │                        │ │
-│  └──────────────────────────────────┘    └────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                           agent-hub-daemon                             │
+│                                                                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+│  │ File Watcher │  │ Session Poll │  │  GC Worker   │                  │
+│  │  (watchdog)  │  │   (5s loop)  │  │  (60s loop)  │                  │
+│  └──────┬───────┘  └──────┬───────┘  └──────────────┘                  │
+│         │                 │                                            │
+│         │  new message    │  new session                               │
+│         ▼                 ▼                                            │
+│  ┌────────────────────────────────────┐                                │
+│  │      Message Processing Queue      │                                │
+│  │   (async workers with retries)     │                                │
+│  └─────────────────┬──────────────────┘                                │
+│                    │                                                   │
+│                    │ POST /session/{id}/prompt_async                   │
+│                    ▼                                                   │
+│  ┌────────────────────────────────────┐    ┌────────────────────────┐  │
+│  │   OpenCode Relay Server (4096)     │───▶│   OpenCode Sessions    │  │
+│  │   - Lists all active sessions      │    │   (TUI instances)      │  │
+│  │   - Injects prompts into any       │    │                        │  │
+│  └────────────────────────────────────┘    └────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
