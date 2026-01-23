@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.4](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.3...v0.5.4) (2026-01-23)
+
+
+### Bug Fixes
+
+* add --pinentry-mode loopback for non-interactive GPG signing ([c48e1e7](https://github.com/xnoto/opencode-agent-hub/commit/c48e1e757e5ea850f2a98fff893721cef580e1a9))
+* add --pinentry-mode loopback for non-interactive GPG signing ([e19964f](https://github.com/xnoto/opencode-agent-hub/commit/e19964ff15d9ab654d067ac226ab60f73b1fc101))
+
 ## [0.5.3](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.2...v0.5.3) (2026-01-23)
 
 
