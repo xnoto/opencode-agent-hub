@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.5](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.4...v0.3.5) (2026-01-23)
+
+
+### Bug Fixes
+
+* correct PyPI PAT inputs ([5705b7d](https://github.com/xnoto/opencode-agent-hub/commit/5705b7d0b0a8257e9deefc4b73411224c92e3bf5))
+* correct PyPI PAT inputs ([828146e](https://github.com/xnoto/opencode-agent-hub/commit/828146e1c88bed14f9ffd44ff888805ca2c2963e))
+* move Homebrew update into publish ([0764412](https://github.com/xnoto/opencode-agent-hub/commit/07644126b5cca6d21445b9749a069429166ea831))
+
 ## [0.3.4](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.3...v0.3.4) (2026-01-23)
 
 
