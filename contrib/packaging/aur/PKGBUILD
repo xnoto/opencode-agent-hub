@@ -1,0 +1,34 @@
+# Maintainer: xnoto <https://github.com/xnoto>
+pkgname=opencode-agent-hub
+pkgver=0.4.0
+pkgrel=1
+pkgdesc="Multi-agent coordination daemon and tools for OpenCode"
+arch=('any')
+url="https://github.com/xnoto/opencode-agent-hub"
+license=('MIT')
+depends=(
+    'python>=3.11'
+    'python-requests'
+    'python-watchdog'
+)
+makedepends=(
+    'python-build'
+    'python-installer'
+    'python-hatchling'
+)
+optdepends=('opencode: Required for daemon operation')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/xnoto/opencode-agent-hub/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "$pkgname-$pkgver"
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    python -m installer --destdir="$pkgdir" dist/*.whl
+    install -Dm644 contrib/systemd/agent-hub-daemon.service \
+        "$pkgdir/usr/lib/systemd/user/agent-hub-daemon.service"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

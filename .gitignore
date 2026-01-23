@@ -29,6 +29,7 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
+!contrib/packaging/rpm/*.spec
 
 # Installer logs
 pip-log.txt

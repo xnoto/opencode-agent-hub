@@ -1,0 +1,6 @@
+opencode-agent-hub (0.4.0-1) unstable; urgency=medium
+
+  * Add --install-service and --uninstall-service flags
+  * Add Linux packaging support
+
+ -- xnoto <https://github.com/xnoto>  Thu, 22 Jan 2026 00:00:00 +0000

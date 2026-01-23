@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+export PYBUILD_NAME=opencode-agent-hub
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_install:
+	dh_auto_install
+	install -Dm644 contrib/systemd/agent-hub-daemon.service \
+		debian/opencode-agent-hub/usr/lib/systemd/user/agent-hub-daemon.service

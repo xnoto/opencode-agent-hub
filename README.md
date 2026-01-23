@@ -26,11 +26,12 @@ Enables multiple AI agents running in separate OpenCode sessions to communicate,
 - [Quickstart](#quickstart)
 - [Installation](#installation)
   - [Homebrew (macOS)](#homebrew-macos)
+  - [Linux Packages](#linux-packages)
   - [uv (PyPI)](#uv-pypi)
   - [pipx (PyPI)](#pipx-pypi)
   - [From source](#from-source)
 - [Running as a Service](#running-as-a-service)
-  - [macOS (launchd)](#macos-launchd)
+  - [macOS (Homebrew)](#macos-homebrew)
   - [Linux (systemd)](#linux-systemd)
 - [Usage](#usage)
   - [Start the daemon](#start-the-daemon)
@@ -270,15 +271,15 @@ Restart OpenCode after adding the configuration.
 1. Install (pick one):
 
 ```bash
-# Homebrew (macOS)
-brew tap xnoto/opencode-agent-hub
-brew install opencode-agent-hub
+# macOS (Homebrew)
+brew install xnoto/tap/opencode-agent-hub
 
-# uv (PyPI)
+# Debian/Ubuntu - see Installation section for full setup
+# Fedora/RHEL - see Installation section for full setup
+
+# Cross-platform (PyPI)
 uv tool install opencode-agent-hub
-
-# pipx (PyPI)
-pipx install opencode-agent-hub
+# or: pipx install opencode-agent-hub
 ```
 
 2. Start the daemon:
@@ -300,27 +301,42 @@ agent-hub-watch
 ### Homebrew (macOS)
 
 ```bash
-# Tap + install
-brew tap xnoto/opencode-agent-hub
-brew install opencode-agent-hub
-
-# Or one command
-brew install xnoto/opencode-agent-hub/opencode-agent-hub
+brew install xnoto/tap/opencode-agent-hub
 ```
 
-Service + manual usage (matches the Homebrew tap docs):
+### Linux Packages (Repository)
+
+**Debian / Ubuntu:**
 
 ```bash
-# Start as a service
-brew services start opencode-agent-hub
+# Add GPG key
+curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/xnoto.gpg
 
-# Run manually
-agent-hub-daemon
-agent-hub-watch
+# Add repository
+echo "deb [signed-by=/etc/apt/keyrings/xnoto.gpg] https://xnoto.github.io/opencode-agent-hub/apt ./" | sudo tee /etc/apt/sources.list.d/xnoto.list
 
-# Stop service
-brew services stop opencode-agent-hub
+# Install
+sudo apt update
+sudo apt install opencode-agent-hub
 ```
+
+**Fedora / RHEL:**
+
+```bash
+# Add repository
+sudo curl -o /etc/yum.repos.d/xnoto.repo https://xnoto.github.io/opencode-agent-hub/xnoto.repo
+
+# Install
+sudo dnf install opencode-agent-hub
+```
+
+**Arch Linux (AUR):**
+
+```bash
+yay -S opencode-agent-hub
+```
+
+**Manual download:** See [GitHub Releases](https://github.com/xnoto/opencode-agent-hub/releases) for direct .deb/.rpm downloads.
 
 ### uv (PyPI)
 
@@ -344,38 +360,42 @@ uv sync
 
 ## Running as a Service
 
-### macOS (launchd)
+### macOS (Homebrew)
 
 ```bash
-# Install
-cp contrib/launchd/com.xnoto.agent-hub-daemon.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.xnoto.agent-hub-daemon.plist
-
-# Or with Homebrew
+# Start as a service
 brew services start opencode-agent-hub
 
 # View logs
 tail -f ~/Library/Logs/agent-hub-daemon.log
 
 # Stop
-launchctl unload ~/Library/LaunchAgents/com.xnoto.agent-hub-daemon.plist
+brew services stop opencode-agent-hub
 ```
 
 ### Linux (systemd)
 
+The daemon can install itself as a systemd user service:
+
 ```bash
-# Install
-mkdir -p ~/.config/systemd/user
-cp contrib/systemd/agent-hub-daemon.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now agent-hub-daemon
+# Install and start the service
+agent-hub-daemon --install-service
 
 # View logs
 journalctl --user -u agent-hub-daemon -f
 
-# Stop
+# Management commands
+systemctl --user status agent-hub-daemon
 systemctl --user stop agent-hub-daemon
+systemctl --user restart agent-hub-daemon
+
+# Uninstall the service
+agent-hub-daemon --uninstall-service
 ```
+
+This works regardless of how you installed the daemon (package, pip, pipx, uv, etc.).
+
+If you installed via RPM/DEB package, a service file is also installed system-wide at `/usr/lib/systemd/user/agent-hub-daemon.service` which any user can enable with `systemctl --user enable --now agent-hub-daemon`.
 
 ## Usage
 

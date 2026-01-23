@@ -1,0 +1,22 @@
+Source: opencode-agent-hub
+Section: devel
+Priority: optional
+Maintainer: xnoto <https://github.com/xnoto>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               python3-all (>= 3.11),
+               python3-hatchling,
+               pybuild-plugin-pyproject
+Standards-Version: 4.6.2
+Homepage: https://github.com/xnoto/opencode-agent-hub
+Rules-Requires-Root: no
+
+Package: opencode-agent-hub
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3-requests,
+         python3-watchdog
+Description: Multi-agent coordination daemon and tools for OpenCode
+ Enables multiple AI agents running in separate OpenCode sessions to
+ communicate, collaborate, and coordinate work through a shared message bus.
