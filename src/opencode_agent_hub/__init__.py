@@ -8,4 +8,4 @@ from importlib.metadata import PackageNotFoundError, version
 try:
     __version__ = version("opencode-agent-hub")
 except PackageNotFoundError:  # pragma: no cover - fallback for dev
-    __version__ = "0.3.5"
+    __version__ = "0.4.0"
