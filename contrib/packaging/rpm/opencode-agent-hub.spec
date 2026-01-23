@@ -16,8 +16,8 @@ BuildRequires:  python3-wheel
 BuildRequires:  python3-hatchling
 
 Requires:       python3 >= 3.11
-Requires:       python3-requests >= 2.28.0
-Requires:       python3-watchdog >= 3.0.0
+Requires:       python3-requests
+Requires:       python3-watchdog
 
 %description
 Multi-agent coordination daemon and tools for OpenCode.

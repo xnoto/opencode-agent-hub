@@ -736,11 +736,10 @@ def check_agent_hub_mcp_configured() -> bool:
         raise PreflightError(
             "agent-hub MCP is not configured in OpenCode.\n\n"
             "The daemon requires agent-hub-mcp to enable agent communication.\n\n"
-            f"To fix, add to {config_path}:\n\n"
+            f'To fix, set "enabled": true for mcp.agent-hub in {config_path}:\n\n'
             '  "mcp": {{\n'
             '    "agent-hub": {{\n'
-            '      "type": "local",\n'
-            '      "command": ["npx", "-y", "agent-hub-mcp@latest"],\n'
+            "      ...\n"
             '      "enabled": true\n'
             "    }}\n"
             "  }}\n\n"
@@ -751,15 +750,8 @@ def check_agent_hub_mcp_configured() -> bool:
     if not agent_hub.get("enabled", False):
         raise PreflightError(
             "agent-hub MCP is configured but disabled.\n\n"
-            f"To fix, edit {config_path} and change enabled to true:\n\n"
-            '  "mcp": {{\n'
-            '    "agent-hub": {{\n'
-            '      "type": "local",\n'
-            '      "command": ["npx", "-y", "agent-hub-mcp@latest"],\n'
-            '      "enabled": true\n'
-            "    }}\n"
-            "  }}\n\n"
-            "Then restart OpenCode."
+            f'To fix, set "enabled": true for mcp.agent-hub in {config_path}, '
+            "then restart OpenCode."
         )
 
     log.info("Preflight: agent-hub MCP configured and enabled")

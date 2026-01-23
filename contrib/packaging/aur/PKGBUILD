@@ -8,8 +8,8 @@ url="https://github.com/xnoto/opencode-agent-hub"
 license=('MIT')
 depends=(
     'python>=3.11'
-    'python-requests>=2.28.0'
-    'python-watchdog>=3.0.0'
+    'python-requests'
+    'python-watchdog'
 )
 makedepends=(
     'python-build'

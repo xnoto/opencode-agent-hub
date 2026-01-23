@@ -15,8 +15,8 @@ Package: opencode-agent-hub
 Architecture: all
 Depends: ${python3:Depends},
          ${misc:Depends},
-         python3-requests (>= 2.28.0),
-         python3-watchdog (>= 3.0.0)
+         python3-requests,
+         python3-watchdog
 Description: Multi-agent coordination daemon and tools for OpenCode
  Enables multiple AI agents running in separate OpenCode sessions to
  communicate, collaborate, and coordinate work through a shared message bus.
