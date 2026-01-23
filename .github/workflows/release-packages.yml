@@ -173,7 +173,8 @@ jobs:
   publish-repo:
     runs-on: ubuntu-latest
     needs: [build-python, build-rpm, build-deb]
-    if: github.event_name == 'release' || inputs.tag_name != ''
+    # inputs.version for workflow_dispatch testing only - remove after verification
+    if: github.event_name == 'release' || inputs.tag_name != '' || inputs.version != ''
     permissions:
       contents: write
       pages: write
@@ -234,13 +235,13 @@ jobs:
           
           # Sign release
           if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
-            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 \
+            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
               --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
-            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 \
+            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
               --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           else
-            gpg --batch --yes --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
-            gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
+            gpg --batch --yes --pinentry-mode loopback --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
+            gpg --batch --yes --pinentry-mode loopback --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           fi
 
       - name: Build RPM repository
@@ -254,10 +255,10 @@ jobs:
           
           # Sign repodata
           if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
-            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 \
+            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
               --default-key "$GPG_KEY_ID" --detach-sign --armor repodata/repomd.xml
           else
-            gpg --batch --yes --default-key "$GPG_KEY_ID" --detach-sign --armor repodata/repomd.xml
+            gpg --batch --yes --pinentry-mode loopback --default-key "$GPG_KEY_ID" --detach-sign --armor repodata/repomd.xml
           fi
 
       - name: Export public key
