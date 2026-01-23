@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.3](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.2...v0.5.3) (2026-01-23)
+
+
+### Bug Fixes
+
+* use colon format for reliable GPG key fingerprint parsing ([d1e4bc0](https://github.com/xnoto/opencode-agent-hub/commit/d1e4bc030d2095a8e495ef1641546bb0c8b283e3))
+* use colon format for reliable GPG key fingerprint parsing ([b6da62c](https://github.com/xnoto/opencode-agent-hub/commit/b6da62c84c4a030f321de87a1c421737a29211ee))
+
 ## [0.5.2](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.1...v0.5.2) (2026-01-23)
 
 
