@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.5...v0.4.0) (2026-01-23)
+
+
+### Features
+
+* **daemon:** add preflight check for agent-hub MCP configuration ([db16054](https://github.com/xnoto/opencode-agent-hub/commit/db1605487bc18dc2a1c4c682d5e8fb175d8641d5))
+* **daemon:** add preflight check for agent-hub MCP configuration ([534a4e1](https://github.com/xnoto/opencode-agent-hub/commit/534a4e1a4b7d80e72d7ec3de96c86dbf10cc9634))
+
 ## [0.3.5](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.4...v0.3.5) (2026-01-23)
 
 
