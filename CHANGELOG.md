@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.5](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.4...v0.5.5) (2026-01-23)
+
+
+### Bug Fixes
+
+* sign RPM packages with GPG key ([4811d60](https://github.com/xnoto/opencode-agent-hub/commit/4811d605e78b32b560360139a6fc56f403b964e3))
+* sign RPM packages with GPG key ([e15356c](https://github.com/xnoto/opencode-agent-hub/commit/e15356c0ea7af64844fe77b5fe985b1ceab73f05))
+
 ## [0.5.4](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.3...v0.5.4) (2026-01-23)
 
 
