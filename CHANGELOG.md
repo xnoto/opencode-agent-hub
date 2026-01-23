@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.3](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.2...v0.3.3) (2026-01-23)
+
+
+### Bug Fixes
+
+* restore PyPI publish and shutdown handling ([ee0ea59](https://github.com/xnoto/opencode-agent-hub/commit/ee0ea59ac86bdd9b8ea0ca27f3cb636b86471a16))
+* restore PyPI publish and shutdown handling ([2dcb0d3](https://github.com/xnoto/opencode-agent-hub/commit/2dcb0d39b2a250a694f072bb075b49ebc9e01fb6))
+
 ## [0.3.2](https://github.com/xnoto/opencode-agent-hub/compare/v0.3.1...v0.3.2) (2026-01-22)
 
 
