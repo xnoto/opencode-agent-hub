@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.5...v1.0.0) (2026-01-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **daemon:** None - backward compatible with existing setups
+
+### Features
+
+* **daemon:** add session-based agent identity and config file support ([85c13e5](https://github.com/xnoto/opencode-agent-hub/commit/85c13e5dd1d0a8ca103c745da5fe11d0cb3d02da))
+* **daemon:** add session-based agent identity and config file support ([e6ccc3b](https://github.com/xnoto/opencode-agent-hub/commit/e6ccc3b26da872cd1401cea0018df0b1d5481ed5))
+
 ## [0.5.5](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.4...v0.5.5) (2026-01-23)
 
 
