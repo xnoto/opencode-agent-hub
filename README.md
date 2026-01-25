@@ -53,10 +53,12 @@ Enables multiple AI agents running in separate OpenCode sessions to communicate,
 - **Message Bus**: Filesystem-based message passing between agents via `~/.agent-hub/messages/`
 - **Session Integration**: Automatically discovers and injects messages into OpenCode sessions
 - **Thread Management**: Conversations tracked with auto-created thread IDs and resolution
-- **Agent Auto-Registration**: Sessions automatically registered as agents by project path
+- **Session-Based Agent Identity**: Each OpenCode session gets a unique agent ID (even in the same directory)
+- **Agent Auto-Registration**: Sessions automatically registered as agents with unique identities
 - **Garbage Collection**: Stale messages, agents, and threads cleaned up (1hr TTL)
 - **Prometheus Metrics**: Exportable metrics at `~/.agent-hub/metrics.prom`
 - **Dashboard**: Real-time terminal UI showing agents, threads, and messages
+- **Config File Support**: Optional JSON config file at `~/.config/agent-hub-daemon/config.json`
 
 ## How It Works
 
@@ -66,9 +68,11 @@ The daemon operates as a **message broker** between OpenCode sessions, using a l
 
 1. **Daemon starts** an OpenCode relay server on port 4096 (if not already running)
 2. **Polls the relay API** (`GET /session`) every 5 seconds to discover active sessions
-3. **Auto-registers agents** based on each session's working directory (project path)
+3. **Auto-registers agents** with unique identities derived from session slug or ID
 4. **Injects an orientation message** into newly discovered sessions, informing the agent of its registered identity
 5. **Notifies the coordinator** to capture the agent's task and introduce related agents
+
+**Note**: Multiple sessions in the same directory each get unique agent IDs (e.g., "cosmic-panda", "brave-tiger"), enabling parallel agents working on the same codebase.
 
 ### Message Flow
 
@@ -440,12 +444,67 @@ uv run src/opencode_agent_hub/watch.py
 
 ## Configuration
 
-Configuration via environment variables:
+The daemon supports configuration via a JSON config file and/or environment variables.
+
+**Precedence**: Environment variables > Config file > Defaults
+
+### Config File
+
+Create `~/.config/agent-hub-daemon/config.json`:
+
+```json
+{
+  "opencode_port": 4096,
+  "log_level": "INFO",
+  "rate_limit": {
+    "enabled": false,
+    "max_messages": 10,
+    "window_seconds": 300,
+    "cooldown_seconds": 0
+  },
+  "coordinator": {
+    "enabled": true,
+    "model": "opencode/claude-opus-4-5",
+    "directory": "~/.agent-hub/coordinator",
+    "agents_md": ""
+  },
+  "gc": {
+    "message_ttl_seconds": 3600,
+    "agent_stale_seconds": 3600,
+    "interval_seconds": 60
+  },
+  "session": {
+    "poll_seconds": 5,
+    "cache_ttl": 10
+  },
+  "injection": {
+    "workers": 4,
+    "retries": 3,
+    "timeout": 5
+  },
+  "metrics_interval": 30
+}
+```
+
+All fields are optional - only specify what you want to override.
+
+### Environment Variables
+
+Environment variables take precedence over config file values:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENCODE_PORT` | `4096` | Port for OpenCode relay server |
 | `AGENT_HUB_DAEMON_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `AGENT_HUB_MESSAGE_TTL` | `3600` | Message TTL in seconds |
+| `AGENT_HUB_AGENT_STALE` | `3600` | Agent stale threshold in seconds |
+| `AGENT_HUB_GC_INTERVAL` | `60` | Garbage collection interval in seconds |
+| `AGENT_HUB_SESSION_POLL` | `5` | Session poll interval in seconds |
+| `AGENT_HUB_SESSION_CACHE_TTL` | `10` | Session cache TTL in seconds |
+| `AGENT_HUB_INJECTION_WORKERS` | `4` | Number of injection worker threads |
+| `AGENT_HUB_INJECTION_RETRIES` | `3` | Injection retry attempts |
+| `AGENT_HUB_INJECTION_TIMEOUT` | `5` | Injection timeout in seconds |
+| `AGENT_HUB_METRICS_INTERVAL` | `30` | Metrics write interval in seconds |
 
 ### Rate Limiting (Optional)
 
@@ -480,6 +539,7 @@ Configuration via environment variables:
 | `AGENT_HUB_COORDINATOR` | `true` | Enable the coordinator agent (`true`, `1`, or `yes`) |
 | `AGENT_HUB_COORDINATOR_MODEL` | `opencode/claude-opus-4-5` | OpenCode model for the coordinator session |
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
+| `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom path to coordinator AGENTS.md |
 
 Example - run coordinator on a different model:
 
@@ -487,16 +547,45 @@ Example - run coordinator on a different model:
 export AGENT_HUB_COORDINATOR_MODEL=opencode/claude-sonnet-4-5
 ```
 
+#### Custom Coordinator Instructions
+
+You can customize the coordinator's behavior by providing your own AGENTS.md file. The daemon searches for the template in this order:
+
+1. **Explicit config**: `AGENT_HUB_COORDINATOR_AGENTS_MD` env var or `coordinator.agents_md` in config file
+2. **User config**: `~/.config/agent-hub-daemon/AGENTS.md`
+3. **User config alias**: `~/.config/agent-hub-daemon/COORDINATOR.md`
+4. **Package template**: `contrib/coordinator/AGENTS.md` (from installation)
+5. **System locations**: `/usr/local/share/opencode-agent-hub/coordinator/AGENTS.md`
+
+If no template is found, a minimal default is created. To customize:
+
+```bash
+# Copy the default template and edit
+mkdir -p ~/.config/agent-hub-daemon
+cp /path/to/opencode-agent-hub/contrib/coordinator/AGENTS.md ~/.config/agent-hub-daemon/
+# Edit to your liking
+```
+
+Or specify an explicit path:
+
+```bash
+export AGENT_HUB_COORDINATOR_AGENTS_MD=~/my-coordinator-instructions.md
+```
+
 ## Directory Structure
 
 ```
 ~/.agent-hub/
-├── agents/           # Registered agent JSON files
-├── messages/         # Pending messages (JSON files)
-│   └── archive/      # Processed/expired messages
-├── threads/          # Conversation thread tracking
-├── metrics.prom      # Prometheus metrics export
-└── oriented_sessions.json  # Session orientation cache
+├── agents/                 # Registered agent JSON files
+├── messages/               # Pending messages (JSON files)
+│   └── archive/            # Processed/expired messages
+├── threads/                # Conversation thread tracking
+├── metrics.prom            # Prometheus metrics export
+├── oriented_sessions.json  # Session orientation cache
+└── session_agents.json     # Session-to-agent identity mapping
+
+~/.config/agent-hub-daemon/
+└── config.json             # Optional config file
 ```
 
 ## Message Format

@@ -51,15 +51,16 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/) (
 | `perf` | Performance improvement | Patch |
 | `ci` | CI/CD changes | None |
 
-### Scope (required)
+### Scope (recommended)
 
 Use a scope to indicate what area is affected:
 - `daemon` - Main daemon code
 - `watch` - Dashboard script
-- `config` - Configuration/env vars
+- `config` - Configuration/env vars/config file
 - `docs` - Documentation
 - `ci` - GitHub Actions
 - `deps` - Dependencies
+- `tests` - Test files
 
 ### Examples
 
@@ -95,17 +96,31 @@ Releases are automated via [release-please](https://github.com/google-github-act
 
 ```
 ~/.agent-hub/
-├── agents/      # Agent registration files
-├── messages/    # Message queue (JSON files)
-│   └── archive/ # Processed messages
-└── threads/     # Conversation tracking
+├── agents/                 # Agent registration files
+├── messages/               # Message queue (JSON files)
+│   └── archive/            # Processed messages
+├── threads/                # Conversation tracking
+├── session_agents.json     # Session-to-agent identity mapping
+└── oriented_sessions.json  # Session orientation cache
+
+~/.config/agent-hub-daemon/
+├── config.json             # Optional config file (env vars override)
+├── AGENTS.md               # Optional coordinator instructions override
+└── COORDINATOR.md          # Alias for AGENTS.md
 
 Daemon watches these directories and:
 1. Detects new messages via watchdog
-2. Looks up target agent's OpenCode session
+2. Looks up target agent's OpenCode session (by session ID, not directory)
 3. Injects message via OpenCode HTTP API
 4. Marks message as delivered
 ```
+
+### Session-Based Agent Identity
+
+Multiple OpenCode sessions in the same directory each get a unique agent identity:
+- Agent ID derived from session slug (e.g., "cosmic-panda") or session ID
+- Enables parallel agents working on the same codebase without conflicts
+- Session-agent mapping persisted in `~/.agent-hub/session_agents.json`
 
 ## Testing
 

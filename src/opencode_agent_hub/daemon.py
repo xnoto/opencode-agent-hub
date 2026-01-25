@@ -71,7 +71,13 @@ import requests
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+# =============================================================================
 # Configuration
+# =============================================================================
+# Precedence: environment variables > config file > defaults
+# Config file: ~/.config/agent-hub-daemon/config.json
+
+# Static paths (not configurable)
 AGENT_HUB_DIR = Path.home() / ".agent-hub"
 MESSAGES_DIR = AGENT_HUB_DIR / "messages"
 ARCHIVE_DIR = MESSAGES_DIR / "archive"
@@ -82,43 +88,172 @@ OPENCODE_DATA_DIR = Path.home() / ".local/share/opencode"
 OPENCODE_SESSIONS_DIR = (
     OPENCODE_DATA_DIR / "storage/session"
 )  # Watch all project subdirs, not just global
-OPENCODE_PORT = int(os.environ.get("OPENCODE_PORT", "4096"))
+CONFIG_DIR = Path.home() / ".config" / "agent-hub-daemon"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+
+def _load_config_file() -> dict:
+    """Load configuration from JSON file if it exists."""
+    if not CONFIG_FILE.exists():
+        return {}
+    try:
+        return json.loads(CONFIG_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        # Log warning later after logging is set up
+        return {}
+
+
+def _get_config_value(
+    env_var: str,
+    config_path: list[str],
+    default: str | int | bool,
+    config: dict,
+    type_: type = str,
+) -> str | int | bool:
+    """Get config value with precedence: env var > config file > default.
+
+    Args:
+        env_var: Environment variable name
+        config_path: Path in config dict (e.g., ["rate_limit", "enabled"])
+        default: Default value
+        config: Loaded config dict
+        type_: Expected type (str, int, or bool)
+    """
+    # Check environment variable first
+    env_value = os.environ.get(env_var)
+    if env_value is not None:
+        if type_ is bool:
+            return env_value.lower() in ("1", "true", "yes")
+        elif type_ is int:
+            return int(env_value)
+        return env_value
+
+    # Check config file - traverse path to get leaf value
+    value: str | int | bool | dict | None = config
+    for key in config_path:
+        if isinstance(value, dict) and key in value:
+            value = value[key]
+        else:
+            return default
+
+    # If we got a dict, the path didn't reach a leaf - return default
+    if isinstance(value, dict):
+        return default
+
+    # Type coercion for config file values
+    if type_ is bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("1", "true", "yes")
+    elif type_ is int:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return int(value)
+
+    # Return value if it matches expected type, otherwise default
+    if value is None:
+        return default
+    return cast("str | int | bool", value)
+
+
+# Load config file once at module load
+_CONFIG = _load_config_file()
+
+# OpenCode connection
+OPENCODE_PORT = int(_get_config_value("OPENCODE_PORT", ["opencode_port"], 4096, _CONFIG, int))
 OPENCODE_URL = f"http://localhost:{OPENCODE_PORT}"
-LOG_LEVEL = os.environ.get("AGENT_HUB_DAEMON_LOG_LEVEL", "INFO")
+LOG_LEVEL = str(_get_config_value("AGENT_HUB_DAEMON_LOG_LEVEL", ["log_level"], "INFO", _CONFIG))
 
-# Expiry settings
-MESSAGE_TTL_SECONDS = 3600  # 1 hour
-AGENT_STALE_SECONDS = 3600  # 1 hour
-GC_INTERVAL_SECONDS = 60  # Run GC every 60 seconds
-SESSION_POLL_SECONDS = 5  # Poll for new active sessions every 5 seconds
-SESSION_CACHE_TTL = 10  # Cache sessions for 10 seconds
-INJECTION_WORKERS = 4  # Concurrent injection workers
-INJECTION_RETRIES = 3  # Retry failed injections
-INJECTION_TIMEOUT = 5  # Shorter timeout for injections
+# Expiry/timing settings
+MESSAGE_TTL_SECONDS = int(
+    _get_config_value("AGENT_HUB_MESSAGE_TTL", ["gc", "message_ttl_seconds"], 3600, _CONFIG, int)
+)
+AGENT_STALE_SECONDS = int(
+    _get_config_value("AGENT_HUB_AGENT_STALE", ["gc", "agent_stale_seconds"], 3600, _CONFIG, int)
+)
+GC_INTERVAL_SECONDS = int(
+    _get_config_value("AGENT_HUB_GC_INTERVAL", ["gc", "interval_seconds"], 60, _CONFIG, int)
+)
+SESSION_POLL_SECONDS = int(
+    _get_config_value("AGENT_HUB_SESSION_POLL", ["session", "poll_seconds"], 5, _CONFIG, int)
+)
+SESSION_CACHE_TTL = int(
+    _get_config_value("AGENT_HUB_SESSION_CACHE_TTL", ["session", "cache_ttl"], 10, _CONFIG, int)
+)
+INJECTION_WORKERS = int(
+    _get_config_value("AGENT_HUB_INJECTION_WORKERS", ["injection", "workers"], 4, _CONFIG, int)
+)
+INJECTION_RETRIES = int(
+    _get_config_value("AGENT_HUB_INJECTION_RETRIES", ["injection", "retries"], 3, _CONFIG, int)
+)
+INJECTION_TIMEOUT = int(
+    _get_config_value("AGENT_HUB_INJECTION_TIMEOUT", ["injection", "timeout"], 5, _CONFIG, int)
+)
+METRICS_INTERVAL = int(
+    _get_config_value("AGENT_HUB_METRICS_INTERVAL", ["metrics_interval"], 30, _CONFIG, int)
+)
 
-# Rate limiting settings (disabled by default, enable via env vars)
+# Rate limiting settings (disabled by default)
 # RATE_LIMIT_ENABLED: Enable per-agent message rate limiting
 # RATE_LIMIT_MAX_MESSAGES: Max messages per agent per window (default: 10)
 # RATE_LIMIT_WINDOW_SECONDS: Time window for rate limiting (default: 300 = 5 min)
 # RATE_LIMIT_COOLDOWN_SECONDS: Minimum seconds between messages from same agent (default: 0)
-RATE_LIMIT_ENABLED = os.environ.get("AGENT_HUB_RATE_LIMIT", "").lower() in ("1", "true", "yes")
-RATE_LIMIT_MAX_MESSAGES = int(os.environ.get("AGENT_HUB_RATE_LIMIT_MAX", "10"))
-RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("AGENT_HUB_RATE_LIMIT_WINDOW", "300"))
-RATE_LIMIT_COOLDOWN_SECONDS = int(os.environ.get("AGENT_HUB_RATE_LIMIT_COOLDOWN", "0"))
+RATE_LIMIT_ENABLED = bool(
+    _get_config_value("AGENT_HUB_RATE_LIMIT", ["rate_limit", "enabled"], False, _CONFIG, bool)
+)
+RATE_LIMIT_MAX_MESSAGES = int(
+    _get_config_value("AGENT_HUB_RATE_LIMIT_MAX", ["rate_limit", "max_messages"], 10, _CONFIG, int)
+)
+RATE_LIMIT_WINDOW_SECONDS = int(
+    _get_config_value(
+        "AGENT_HUB_RATE_LIMIT_WINDOW", ["rate_limit", "window_seconds"], 300, _CONFIG, int
+    )
+)
+RATE_LIMIT_COOLDOWN_SECONDS = int(
+    _get_config_value(
+        "AGENT_HUB_RATE_LIMIT_COOLDOWN", ["rate_limit", "cooldown_seconds"], 0, _CONFIG, int
+    )
+)
 
 # Coordinator settings
 # The coordinator is a dedicated OpenCode session that facilitates agent collaboration
 # COORDINATOR_ENABLED: Enable the coordinator agent (default: true)
 # COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/claude-opus-4-5)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
-COORDINATOR_ENABLED = os.environ.get("AGENT_HUB_COORDINATOR", "true").lower() in (
-    "1",
-    "true",
-    "yes",
+# COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
+COORDINATOR_ENABLED = bool(
+    _get_config_value("AGENT_HUB_COORDINATOR", ["coordinator", "enabled"], True, _CONFIG, bool)
 )
-COORDINATOR_MODEL = os.environ.get("AGENT_HUB_COORDINATOR_MODEL", "opencode/claude-opus-4-5")
-COORDINATOR_DIR = Path(
-    os.environ.get("AGENT_HUB_COORDINATOR_DIR", str(AGENT_HUB_DIR / "coordinator"))
+COORDINATOR_MODEL = str(
+    _get_config_value(
+        "AGENT_HUB_COORDINATOR_MODEL",
+        ["coordinator", "model"],
+        "opencode/claude-opus-4-5",
+        _CONFIG,
+    )
+)
+_coordinator_dir_str = str(
+    _get_config_value(
+        "AGENT_HUB_COORDINATOR_DIR",
+        ["coordinator", "directory"],
+        str(AGENT_HUB_DIR / "coordinator"),
+        _CONFIG,
+    )
+)
+COORDINATOR_DIR = Path(os.path.expanduser(_coordinator_dir_str))
+_coordinator_agents_md_str = str(
+    _get_config_value(
+        "AGENT_HUB_COORDINATOR_AGENTS_MD",
+        ["coordinator", "agents_md"],
+        "",  # Empty string means auto-detect
+        _CONFIG,
+    )
+)
+# None means auto-detect, otherwise use the specified path
+COORDINATOR_AGENTS_MD: Path | None = (
+    Path(os.path.expanduser(_coordinator_agents_md_str)) if _coordinator_agents_md_str else None
 )
 
 # Track message timestamps per agent for rate limiting
@@ -126,6 +261,12 @@ _agent_message_times: dict[str, list[float]] = {}
 
 # Track sessions that have been oriented (session_id -> True)
 ORIENTED_SESSIONS: set[str] = set()
+
+# Session-to-agent mapping: maps session_id to agent info
+# This enables multiple sessions in the same directory to have unique agent identities
+# Structure: {session_id: {"agentId": str, "directory": str, "slug": str | None}}
+SESSION_AGENTS: dict[str, dict] = {}
+SESSION_AGENTS_FILE = AGENT_HUB_DIR / "session_agents.json"
 
 # Daemon start time - only orient sessions created after this
 DAEMON_START_TIME_MS: int = int(time.time() * 1000)
@@ -288,7 +429,6 @@ metrics = PrometheusMetrics()
 
 # Metrics file location
 METRICS_FILE = AGENT_HUB_DIR / "metrics.prom"
-METRICS_INTERVAL = 30  # Write metrics every 30 seconds
 
 
 def save_oriented_sessions() -> None:
@@ -298,6 +438,26 @@ def save_oriented_sessions() -> None:
         ORIENTED_SESSIONS_FILE.write_text(json.dumps(list(ORIENTED_SESSIONS)))
     except OSError as e:
         log.warning(f"Failed to save oriented sessions: {e}")
+
+
+def save_session_agents() -> None:
+    """Save session-to-agent mapping to disk."""
+    try:
+        AGENT_HUB_DIR.mkdir(parents=True, exist_ok=True)
+        SESSION_AGENTS_FILE.write_text(json.dumps(SESSION_AGENTS, indent=2))
+    except OSError as e:
+        log.warning(f"Failed to save session agents: {e}")
+
+
+def load_session_agents() -> dict[str, dict]:
+    """Load session-to-agent mapping from disk."""
+    if not SESSION_AGENTS_FILE.exists():
+        return {}
+    try:
+        return json.loads(SESSION_AGENTS_FILE.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning(f"Failed to load session agents: {e}")
+        return {}
 
 
 # Hub server process (launched by daemon if needed)
@@ -583,6 +743,42 @@ def gc_oriented_sessions() -> int:
     return 0
 
 
+def gc_session_agents() -> int:
+    """Remove session-agent mappings for sessions that no longer exist.
+
+    This prevents the SESSION_AGENTS mapping from growing unbounded
+    and ensures stale session references are cleaned up.
+
+    Returns number of mappings cleaned.
+    """
+    global SESSION_AGENTS
+
+    if not SESSION_AGENTS:
+        return 0
+
+    # Get current sessions from API
+    current_sessions = get_sessions()
+    if not current_sessions:
+        return 0  # Don't clear on API failure
+
+    # Build set of current session IDs
+    current_ids = {s.get("id", "") for s in current_sessions if s.get("id")}
+
+    # Find session-agent mappings for non-existent sessions
+    stale_session_ids = [sid for sid in SESSION_AGENTS if sid not in current_ids]
+
+    if stale_session_ids:
+        for sid in stale_session_ids:
+            del SESSION_AGENTS[sid]
+        save_session_agents()
+        log.info(
+            f"GC: Removed {len(stale_session_ids)} stale session-agent mappings, "
+            f"{len(SESSION_AGENTS)} remaining"
+        )
+        return len(stale_session_ids)
+    return 0
+
+
 def run_gc(agents: dict[str, dict]) -> None:
     """Run garbage collection on messages, threads, stale agents, and oriented sessions."""
     now_ms = int(time.time() * 1000)
@@ -594,6 +790,9 @@ def run_gc(agents: dict[str, dict]) -> None:
     # 0. Clean up oriented sessions - keep only sessions that still exist in API
     sessions_cleaned = gc_oriented_sessions()
 
+    # 0.5. Clean up session-agent mappings for non-existent sessions
+    gc_session_agents()
+
     # 1. Remove stale agents (>1hr since lastSeen)
     if AGENTS_DIR.exists():
         for agent_path in AGENTS_DIR.glob("*.json"):
@@ -603,14 +802,22 @@ def run_gc(agents: dict[str, dict]) -> None:
                 age_ms = now_ms - last_seen
                 if age_ms > AGENT_STALE_SECONDS * 1000:
                     agent_id = agent.get("id", agent_path.stem)
+                    session_id = agent.get("sessionId")
                     agent_path.unlink()
                     # Remove from in-memory cache too
                     agents.pop(agent_id, None)
+                    # Also remove from session-agent mapping
+                    if session_id and session_id in SESSION_AGENTS:
+                        del SESSION_AGENTS[session_id]
                     agents_cleaned += 1
                     log.info(f"Removed stale agent {agent_id} (age: {age_ms / 1000 / 60:.0f}m)")
             except (json.JSONDecodeError, OSError) as e:
                 log.warning(f"Failed to check agent {agent_path}: {e}")
                 continue
+
+    # Save session agents if any were cleaned
+    if agents_cleaned > 0:
+        save_session_agents()
 
     # 2. Archive expired messages (>1hr old)
     for msg_path in MESSAGES_DIR.glob("*.json"):
@@ -845,11 +1052,63 @@ def stop_hub_server() -> None:
 # =============================================================================
 
 
+def find_coordinator_agents_md_template() -> Path | None:
+    """Find the AGENTS.md template for the coordinator.
+
+    Search order:
+    1. Explicit config/env var path (COORDINATOR_AGENTS_MD)
+    2. ~/.config/agent-hub-daemon/AGENTS.md (user override)
+    3. ~/.config/agent-hub-daemon/COORDINATOR.md (alias)
+    4. Package contrib/coordinator/AGENTS.md
+    5. ~/.local/share/opencode-agent-hub/coordinator/AGENTS.md
+    6. /usr/local/share/opencode-agent-hub/coordinator/AGENTS.md
+
+    Returns the first existing path, or None if no template found.
+    """
+    # 1. Explicit config path takes highest priority
+    if COORDINATOR_AGENTS_MD is not None:
+        if COORDINATOR_AGENTS_MD.exists():
+            return COORDINATOR_AGENTS_MD
+        else:
+            log.warning(f"Configured coordinator AGENTS.md not found: {COORDINATOR_AGENTS_MD}")
+            # Fall through to other locations
+
+    # 2-3. User config directory overrides
+    user_config_locations = [
+        CONFIG_DIR / "AGENTS.md",
+        CONFIG_DIR / "COORDINATOR.md",
+    ]
+
+    for path in user_config_locations:
+        if path.exists():
+            return path
+
+    # 4-6. Package and system locations
+    system_locations = [
+        Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "AGENTS.md",
+        Path.home() / ".local/share/opencode-agent-hub/coordinator/AGENTS.md",
+        Path("/usr/local/share/opencode-agent-hub/coordinator/AGENTS.md"),
+    ]
+
+    for path in system_locations:
+        if path.exists():
+            return path
+
+    return None
+
+
 def setup_coordinator_directory() -> bool:
     """Set up the coordinator directory with AGENTS.md.
 
-    Copies the AGENTS.md template from contrib/coordinator/ if available,
+    Copies the AGENTS.md template from the first found location,
     otherwise creates a minimal version.
+
+    Template search order (see find_coordinator_agents_md_template):
+    1. Explicit config/env var path (COORDINATOR_AGENTS_MD)
+    2. ~/.config/agent-hub-daemon/AGENTS.md (user override)
+    3. ~/.config/agent-hub-daemon/COORDINATOR.md (alias)
+    4. Package contrib/coordinator/AGENTS.md
+    5. System share locations
     """
     COORDINATOR_DIR.mkdir(parents=True, exist_ok=True)
     agents_md = COORDINATOR_DIR / "AGENTS.md"
@@ -857,18 +1116,12 @@ def setup_coordinator_directory() -> bool:
     if agents_md.exists():
         return True
 
-    # Try to find the template in common locations
-    template_locations = [
-        Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "AGENTS.md",
-        Path.home() / ".local/share/opencode-agent-hub/coordinator/AGENTS.md",
-        Path("/usr/local/share/opencode-agent-hub/coordinator/AGENTS.md"),
-    ]
-
-    for template in template_locations:
-        if template.exists():
-            shutil.copy(template, agents_md)
-            log.info(f"Copied coordinator AGENTS.md from {template}")
-            return True
+    # Find and copy template
+    template = find_coordinator_agents_md_template()
+    if template is not None:
+        shutil.copy(template, agents_md)
+        log.info(f"Copied coordinator AGENTS.md from {template}")
+        return True
 
     # Create minimal AGENTS.md if no template found
     minimal_agents_md = """# Coordinator Agent
@@ -1059,12 +1312,24 @@ def invalidate_session_cache() -> None:
 
 
 def find_sessions_for_agent(agent: dict, sessions: list[dict]) -> list[dict]:
-    """Find the most recent session for an agent's projectPath.
+    """Find the session for an agent by session ID.
 
-    Only returns the single most recently updated session to avoid
-    spamming historical sessions with messages.
+    Uses session ID-based lookup for precise routing. Each agent is now
+    associated with exactly one session, enabling multiple agents to
+    operate in the same working directory.
+
+    Falls back to directory-based matching for legacy agents without sessionId.
     """
+    # Primary: session ID-based lookup (new behavior)
+    session = find_session_for_agent(agent, sessions)
+    if session:
+        return [session]
+
+    # Fallback: directory-based matching for legacy agents
     agent_path = agent.get("projectPath", "")
+    if not agent_path:
+        return []
+
     matching = [s for s in sessions if s.get("directory") == agent_path]
     if not matching:
         return []
@@ -1239,9 +1504,125 @@ def get_or_create_agent_for_directory(directory: str, agents: dict[str, dict]) -
     return agent
 
 
+def generate_agent_id_for_session(session: dict) -> str:
+    """Generate a unique agent ID from session metadata.
+
+    Uses session slug if available (human-readable), otherwise falls back
+    to session ID. This ensures each session gets a unique agent identity
+    even when multiple sessions share the same working directory.
+    """
+    slug = session.get("slug")
+    session_id = session.get("id", "")
+
+    if slug:
+        # Use slug as primary identifier (e.g., "cosmic-panda")
+        return slug
+
+    # Fallback to session ID (truncated for readability)
+    if session_id.startswith("ses_"):
+        # Use the unique portion after "ses_" prefix, truncated
+        return f"session-{session_id[4:16]}"
+
+    return f"session-{session_id[:12]}" if session_id else "unknown-session"
+
+
+def get_or_create_agent_for_session(session: dict, agents: dict[str, dict]) -> dict:
+    """Find or auto-create an agent for a specific session.
+
+    Unlike get_or_create_agent_for_directory(), this creates a unique agent
+    identity per session, allowing multiple TUI sessions in the same directory
+    to have separate agent identities.
+
+    The agent ID is derived from the session's slug (if available) or session ID,
+    ensuring uniqueness across all sessions.
+    """
+    session_id = session.get("id", "")
+    directory = session.get("directory", "")
+
+    # Check if we already have a mapping for this session
+    if session_id in SESSION_AGENTS:
+        agent_id = SESSION_AGENTS[session_id]["agentId"]
+        if agent_id in agents:
+            return agents[agent_id]
+
+    # Generate unique agent ID from session
+    agent_id = generate_agent_id_for_session(session)
+
+    # Handle conflicts by appending session ID fragment
+    if agent_id in agents and agents[agent_id].get("sessionId") != session_id:
+        # Different session has this slug - append uniquifier
+        agent_id = f"{agent_id}-{session_id[4:12]}" if session_id.startswith("ses_") else agent_id
+
+    agent = {
+        "id": agent_id,
+        "sessionId": session_id,  # Track which session this agent represents
+        "projectPath": directory,  # Keep for reference/display
+        "slug": session.get("slug"),
+        "role": f"Session agent for {session.get('title', directory)[:50]}",
+        "capabilities": [],
+        "collaboratesWith": [],
+        "lastSeen": int(time.time() * 1000),
+        "status": "active",
+        "autoCreated": True,
+    }
+
+    # Update session-to-agent mapping
+    SESSION_AGENTS[session_id] = {
+        "agentId": agent_id,
+        "directory": directory,
+        "slug": session.get("slug"),
+    }
+    save_session_agents()
+
+    # Save agent to disk
+    agent_file = AGENTS_DIR / f"{agent_id}.json"
+    try:
+        agent_file.write_text(json.dumps(agent, indent=2))
+        agents[agent_id] = agent
+        metrics.inc("agent_hub_agents_auto_created_total")
+        metrics.set_gauge("agent_hub_active_agents", len(agents))
+        log.info(f"Auto-registered session agent '{agent_id}' for session {session_id[:12]}")
+    except OSError as e:
+        log.error(f"Failed to save auto-created session agent: {e}")
+
+    return agent
+
+
+def find_session_for_agent(agent: dict, sessions: list[dict]) -> dict | None:
+    """Find the session associated with an agent by session ID.
+
+    This replaces directory-based matching with direct session ID lookup,
+    enabling precise routing to specific sessions.
+    """
+    agent_session_id = agent.get("sessionId")
+    if not agent_session_id:
+        # Fallback for legacy agents without sessionId - check SESSION_AGENTS mapping
+        agent_id = agent.get("id", "")
+        for sid, mapping in SESSION_AGENTS.items():
+            if mapping.get("agentId") == agent_id:
+                agent_session_id = sid
+                break
+
+    if not agent_session_id:
+        return None
+
+    for session in sessions:
+        if session.get("id") == agent_session_id:
+            return session
+
+    return None
+
+
 def format_orientation(agent: dict, all_agents: dict[str, dict]) -> str:
-    """Format minimal orientation message for a newly detected agent session."""
+    """Format orientation message for a newly detected agent session.
+
+    Includes registration instructions with the session-specific agent ID.
+    This ensures the agent registers with agent-hub-mcp using the unique
+    ID assigned by the daemon, enabling multiple sessions in the same
+    directory to have separate identities.
+    """
     agent_id = agent.get("id", "unknown")
+    directory = agent.get("projectPath", "")
 
     # List other active agents (exclude self)
     other_agents = [aid for aid, a in all_agents.items() if aid != agent_id and is_agent_active(a)]
@@ -1255,6 +1636,13 @@ def format_orientation(agent: dict, all_agents: dict[str, dict]) -> str:
         parts.append(f"Other agents: {agents_str}")
 
     parts.append("Tools: agent-hub_send_message, agent-hub_sync")
+
+    # Add registration instruction with session-specific ID
+    # This ensures agent-hub-mcp creates a unique agent entry for this session
+    parts.append(
+        f'Register with: agent-hub_register_agent(id="{agent_id}", '
+        f'projectPath="{directory}", role="your role")'
+    )
 
     return " | ".join(parts)
 
@@ -1295,6 +1683,7 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     """Process an OpenCode session file and orient if needed.
 
     Only orients sessions created AFTER the daemon started.
+    Creates a unique agent identity per session using session ID/slug.
     """
     session = load_opencode_session(path)
     if not session:
@@ -1317,9 +1706,9 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     if not directory:
         return
 
-    # Get or auto-create agent for this directory
-    agent = get_or_create_agent_for_directory(directory, agents)
-    log.info(f"File watcher: new session {session_id[:8]}, orienting")
+    # Get or auto-create agent for this session (unique per session)
+    agent = get_or_create_agent_for_session(session, agents)
+    log.info(f"File watcher: new session {session_id[:8]}, orienting as {agent.get('id')}")
     orient_session(session_id, agent, agents)
 
 
@@ -1332,7 +1721,8 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
     - Daemon restart gives a clean slate
 
     Sessions are oriented once and tracked in ORIENTED_SESSIONS to prevent
-    repeated messaging.
+    repeated messaging. Each session gets a unique agent identity based on
+    its session ID/slug, allowing multiple sessions in the same directory.
     """
     sessions = get_sessions()
     if not sessions:
@@ -1352,9 +1742,9 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
         if not directory:
             continue
 
-        # Get or auto-create agent for this directory
-        agent = get_or_create_agent_for_directory(directory, agents)
-        log.info(f"New session {session_id[:8]} created after daemon start, orienting")
+        # Get or auto-create agent for this session (unique per session)
+        agent = get_or_create_agent_for_session(session, agents)
+        log.info(f"New session {session_id[:8]} orienting as {agent.get('id')}")
         orient_session(session_id, agent, agents)
 
 
@@ -1751,12 +2141,14 @@ Examples:
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load persisted state
-    # Fresh start: clear oriented sessions from previous runs
+    # Fresh start: clear oriented sessions and session-agent mappings from previous runs
     # Only sessions created AFTER daemon starts will be oriented
-    global ORIENTED_SESSIONS, DAEMON_START_TIME_MS
+    global ORIENTED_SESSIONS, SESSION_AGENTS, DAEMON_START_TIME_MS
     DAEMON_START_TIME_MS = int(time.time() * 1000)
     ORIENTED_SESSIONS = set()
     save_oriented_sessions()
+    SESSION_AGENTS = {}
+    save_session_agents()
 
     log.info(f"Daemon starting at {DAEMON_START_TIME_MS} - only new sessions will be oriented")
     log.info(f"Watching messages: {MESSAGES_DIR}")
