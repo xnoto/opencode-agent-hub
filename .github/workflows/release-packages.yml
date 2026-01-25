@@ -288,13 +288,17 @@ jobs:
           EOF
           
           # DNF/YUM repo file
+          # metadata_expire=300 ensures dnf checks for new packages every 5 minutes
+          # (GitHub Pages CDN caches for max 10 minutes, so 5 min is a safe middle ground)
           cat > repo/xnoto.repo << 'EOF'
           [xnoto]
           name=xnoto packages
           baseurl=https://xnoto.github.io/opencode-agent-hub/rpm
           enabled=1
           gpgcheck=1
+          repo_gpgcheck=1
           gpgkey=https://xnoto.github.io/opencode-agent-hub/KEY.gpg
+          metadata_expire=300
           EOF
 
       - name: Create index page
