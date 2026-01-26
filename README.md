@@ -6,6 +6,10 @@ Enables multiple AI agents running in separate OpenCode sessions to communicate,
 
 > **Warning**: This software enables autonomous agent-to-agent communication which triggers LLM API calls. Use at your own risk. The authors are not responsible for any token usage, API costs, or other expenses incurred. Consider enabling [rate limiting](#rate-limiting-optional) to control costs.
 
+## Demo
+
+https://github.com/user-attachments/assets/b591f1d2-01d7-4408-bf60-67eb7a8fbf0c
+
 ## Table of Contents
 
 - [Features](#features)
