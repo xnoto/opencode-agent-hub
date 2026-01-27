@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.0.0...v1.0.1) (2026-01-26)
+
+
+### Documentation
+
+* **readme:** add demo video ([88fd196](https://github.com/xnoto/opencode-agent-hub/commit/88fd196269cd519407e3e50d5d635ed186376265))
+* **readme:** add demo video ([6b1eca0](https://github.com/xnoto/opencode-agent-hub/commit/6b1eca01ff66945840c18e14bf8080b29263c93a))
+
 ## [1.0.0](https://github.com/xnoto/opencode-agent-hub/compare/v0.5.5...v1.0.0) (2026-01-25)
 
 
