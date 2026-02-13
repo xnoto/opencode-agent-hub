@@ -187,7 +187,7 @@ Observed a minimal coordination run with two agents (frontend + backend) and a c
 **Test setup**:
 - Frontend task: login form that calls `POST /api/auth/login`
 - Backend task: implement `/api/auth/login` with JWT response
-- Coordinator model: `anthropic/claude-opus-4-6`
+- Coordinator model: `opencode/claude-opus-4-6`
 
 **Observed interaction** (3 total messages):
 1. Frontend → Backend: asked for API contract details (request/response/error shapes)
@@ -471,7 +471,7 @@ Create `~/.config/agent-hub-daemon/config.json`:
   },
   "coordinator": {
     "enabled": true,
-    "model": "anthropic/claude-opus-4-6",
+    "model": "opencode/claude-opus-4-6",
     "directory": "~/.agent-hub/coordinator",
     "agents_md": ""
   },
@@ -544,7 +544,7 @@ Configuration via environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_HUB_COORDINATOR` | `true` | Enable the coordinator agent (`true`, `1`, or `yes`) |
-| `AGENT_HUB_COORDINATOR_MODEL` | `anthropic/claude-opus-4-6` | OpenCode model for the coordinator session |
+| `AGENT_HUB_COORDINATOR_MODEL` | `opencode/claude-opus-4-6` | OpenCode model for the coordinator session |
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom path to coordinator AGENTS.md |
 

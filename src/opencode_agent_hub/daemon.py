@@ -221,7 +221,7 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # Coordinator settings
 # The coordinator is a dedicated OpenCode session that facilitates agent collaboration
 # COORDINATOR_ENABLED: Enable the coordinator agent (default: true)
-# COORDINATOR_MODEL: OpenCode model for coordinator (default: anthropic/claude-opus-4-6)
+# COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/claude-opus-4-6)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
 COORDINATOR_ENABLED = bool(
@@ -231,7 +231,7 @@ COORDINATOR_MODEL = str(
     _get_config_value(
         "AGENT_HUB_COORDINATOR_MODEL",
         ["coordinator", "model"],
-        "anthropic/claude-opus-4-6",
+        "opencode/claude-opus-4-6",
         _CONFIG,
     )
 )
