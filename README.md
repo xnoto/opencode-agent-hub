@@ -280,7 +280,7 @@ Restart OpenCode after adding the configuration.
 
 ```bash
 # macOS (Homebrew)
-brew install xnoto/tap/opencode-agent-hub
+brew install xnoto/opencode-agent-hub/opencode-agent-hub
 
 # Debian/Ubuntu - see Installation section for full setup
 # Fedora/RHEL - see Installation section for full setup
@@ -309,7 +309,7 @@ agent-hub-watch
 ### Homebrew (macOS)
 
 ```bash
-brew install xnoto/tap/opencode-agent-hub
+brew install xnoto/opencode-agent-hub/opencode-agent-hub
 ```
 
 ### Linux Packages (Repository)
