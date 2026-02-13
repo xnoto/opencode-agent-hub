@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/xnoto/opencode-agent-hub/compare/v1.0.1...v1.0.2) (2026-02-13)
+
+
+### Documentation
+
+* **readme:** fix homebrew tap name in install commands ([5911304](https://github.com/xnoto/opencode-agent-hub/commit/591130465f8ff3bc883d5b7c4b9746afb4f3b804))
+
 ## [1.0.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.0.0...v1.0.1) (2026-01-26)
 
 
