@@ -361,7 +361,7 @@ wheels = [
 
 [[package]]
 name = "opencode-agent-hub"
-version = "0.5.5"
+version = "1.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "requests" },

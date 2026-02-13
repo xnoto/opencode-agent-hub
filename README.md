@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/b591f1d2-01d7-4408-bf60-67eb7a8fbf0c
 - [How It Works](#how-it-works)
   - [Session Discovery](#session-discovery)
   - [Message Flow](#message-flow)
-  - [The Relay Server](#the-relay-server)
+  - [The Hub Server](#the-hub-server)
   - [Coordination Flow](#coordination-flow)
   - [Push Model (No Polling Required by Agents)](#push-model-no-polling-required-by-agents)
   - [Session Lifecycle](#session-lifecycle)
@@ -66,12 +66,12 @@ https://github.com/user-attachments/assets/b591f1d2-01d7-4408-bf60-67eb7a8fbf0c
 
 ## How It Works
 
-The daemon operates as a **message broker** between OpenCode sessions, using a local relay server to inject messages directly into agent conversations and to **proactively encourage coordination** via a coordinator agent.
+The daemon operates as a **message broker** between OpenCode sessions, using a local hub server to inject messages directly into agent conversations and to **proactively encourage coordination** via a coordinator agent.
 
 ### Session Discovery
 
-1. **Daemon starts** an OpenCode relay server on port 4096 (if not already running)
-2. **Polls the relay API** (`GET /session`) every 5 seconds to discover active sessions
+1. **Daemon starts** an OpenCode hub server on port 4096 (if not already running)
+2. **Polls the hub API** (`GET /session`) every 5 seconds to discover active sessions
 3. **Auto-registers agents** with unique identities derived from session slug or ID
 4. **Injects an orientation message** into newly discovered sessions, informing the agent of its registered identity
 5. **Notifies the coordinator** to capture the agent's task and introduce related agents
@@ -92,9 +92,10 @@ Agent A                      Daemon                        Agent B
    │                            │  (watchdog)                 │
    │                            │                             │
    │                            │  lookup Agent B's session   │
-   │                            │  via relay API              │
+   │                            │  via hub API                │
    │                            │                             │
-   │                            │  POST /session/{id}/prompt  │
+   │                            │  POST /session/{id}/        │
+   │                            │       prompt_async          │
    │                            │ ───────────────────────────>│
    │                            │                             │
    │                            │                    Agent B wakes,
@@ -102,44 +103,45 @@ Agent A                      Daemon                        Agent B
    │                            │                    response instructions
 ```
 
-### The Relay Server
+### The Hub Server
 
 The daemon auto-starts `opencode serve --port 4096` which provides:
 
 - **Session listing**: `GET /session` - returns all active OpenCode sessions
 - **Message injection**: `POST /session/{id}/prompt_async` - injects a prompt that wakes the agent
 
-This relay server sees **all** OpenCode TUI instances on the machine, allowing the daemon to route messages to any session regardless of which terminal it's running in. The coordinator relies on the relay server to inject **task capture prompts** and **introductions** that encourage agents to collaborate.
+This hub server sees **all** OpenCode TUI instances on the machine, allowing the daemon to route messages to any session regardless of which terminal it's running in. The coordinator also runs as a session on this hub server, created via `opencode run --attach`.
 
 ### Coordination Flow
 
-The coordinator uses the relay server to proactively connect agents without requiring the user to manually broker introductions.
+The coordinator is a dedicated agent session on the hub server. It communicates like any other agent — via the `agent-hub_send_message` MCP tool, which writes a JSON file to the filesystem. The daemon detects the file, looks up the target session, and injects the message via the hub API.
 
 ```
 New Session            Daemon                Coordinator            Other Agent
      │                    │                       │                       │
      │  OpenCode TUI      │                       │                       │
      │ ──────────────────>│                       │                       │
-     │                    │  notify NEW_AGENT     │                       │
-     │                    │ ──────────────────────>                       │
-     │                    │                       │  ask: "What are you   │
-     │                    │                       │  working on?"         │
-     │                    │                       │ ──────────────────────>
+     │                    │  inject NEW_AGENT     │                       │
+     │                    │  notification         │                       │
+     │                    │ ─────────────────────>│                       │
      │                    │                       │                       │
-     │                    │                       │  analyze tasks        │
-     │                    │                       │  send introductions   │
-     │                    │                       │ ──────────────────────>
+     │                    │                       │  send_message(MCP)    │
+     │                    │   detect JSON file    │  → writes JSON file   │
+     │                    │<──────────────────────│                       │
+     │                    │                       │                       │
+     │                    │  inject into session  │                       │
+     │                    │ ──────────────────────────────────────────────>
      │                    │                       │                       │
 ```
 
-This keeps the coordination overhead low while still ensuring agents know who to talk to.
+This keeps the coordination overhead low while still ensuring agents know who to talk to. The coordinator uses the same message pipeline as any other agent — no special privileges or direct API access.
 
 ### Push Model (No Polling Required by Agents)
 
 Agents don't need to poll for messages. The daemon:
 1. Watches the filesystem for new message files
 2. Looks up the target agent's active session
-3. Injects the message directly into that session via the relay API
+3. Injects the message directly into that session via the hub API
 4. The injection **wakes** the agent and triggers an LLM response
 
 Each injected message includes full response instructions, so agents don't need special hub protocol knowledge.
@@ -185,7 +187,7 @@ Observed a minimal coordination run with two agents (frontend + backend) and a c
 **Test setup**:
 - Frontend task: login form that calls `POST /api/auth/login`
 - Backend task: implement `/api/auth/login` with JWT response
-- Coordinator model: `opencode/claude-opus-4-5`
+- Coordinator model: `opencode/claude-opus-4-6`
 
 **Observed interaction** (3 total messages):
 1. Frontend → Backend: asked for API contract details (request/response/error shapes)
@@ -229,9 +231,9 @@ Observed a minimal coordination run with two agents (frontend + backend) and a c
 │                    │ POST /session/{id}/prompt_async                   │
 │                    ▼                                                   │
 │  ┌────────────────────────────────────┐    ┌────────────────────────┐  │
-│  │   OpenCode Relay Server (4096)     │───▶│   OpenCode Sessions    │  │
-│  │   - Lists all active sessions      │    │   (TUI instances)      │  │
-│  │   - Injects prompts into any       │    │                        │  │
+│  │   OpenCode Hub Server (4096)       │───▶│   OpenCode Sessions    │  │
+│  │   - Lists all active sessions      │    │   (TUI instances +     │  │
+│  │   - Injects prompts into any       │    │    coordinator)        │  │
 │  └────────────────────────────────────┘    └────────────────────────┘  │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -416,9 +418,10 @@ agent-hub-daemon
 The daemon will:
 1. **Verify agent-hub MCP is configured** (exits with instructions if not)
 2. Start an OpenCode hub server on port 4096 (if not already running)
-3. Watch `~/.agent-hub/messages/` for new message files
-4. Auto-register agents for any OpenCode session it discovers
-5. Inject messages into the appropriate sessions
+3. Start a coordinator agent session on the hub (if enabled, see [Coordinator](#coordinator-optional))
+4. Watch `~/.agent-hub/messages/` for new message files
+5. Auto-register agents for any OpenCode session it discovers
+6. Inject messages into the appropriate sessions
 
 > **Note**: If agent-hub MCP is not configured, the daemon will exit immediately with clear instructions on how to fix it. See [Prerequisites](#prerequisites).
 
@@ -468,7 +471,7 @@ Create `~/.config/agent-hub-daemon/config.json`:
   },
   "coordinator": {
     "enabled": true,
-    "model": "opencode/claude-opus-4-5",
+    "model": "opencode/claude-opus-4-6",
     "directory": "~/.agent-hub/coordinator",
     "agents_md": ""
   },
@@ -498,7 +501,7 @@ Environment variables take precedence over config file values:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENCODE_PORT` | `4096` | Port for OpenCode relay server |
+| `OPENCODE_PORT` | `4096` | Port for OpenCode hub server |
 | `AGENT_HUB_DAEMON_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `AGENT_HUB_MESSAGE_TTL` | `3600` | Message TTL in seconds |
 | `AGENT_HUB_AGENT_STALE` | `3600` | Agent stale threshold in seconds |
@@ -541,14 +544,14 @@ Configuration via environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_HUB_COORDINATOR` | `true` | Enable the coordinator agent (`true`, `1`, or `yes`) |
-| `AGENT_HUB_COORDINATOR_MODEL` | `opencode/claude-opus-4-5` | OpenCode model for the coordinator session |
+| `AGENT_HUB_COORDINATOR_MODEL` | `opencode/claude-opus-4-6` | OpenCode model for the coordinator session |
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom path to coordinator AGENTS.md |
 
 Example - run coordinator on a different model:
 
 ```bash
-export AGENT_HUB_COORDINATOR_MODEL=opencode/claude-sonnet-4-5
+export AGENT_HUB_COORDINATOR_MODEL=anthropic/claude-sonnet-4-5
 ```
 
 #### Custom Coordinator Instructions

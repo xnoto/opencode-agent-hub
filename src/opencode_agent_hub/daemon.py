@@ -37,8 +37,9 @@ Wake behavior: ALL messages wake agents (noReply: false)
 
 Session polling:
 - Polls OpenCode /session endpoint periodically
-- Matches sessions to registered agents by projectPath
+- Auto-creates unique agent identity per session (from slug or session ID)
 - Injects orientation message on first match (identifies agent, no action required)
+- Routes messages to agents by session ID (not directory)
 - Tracks oriented sessions to avoid re-injection
 - Agents do NOT need to proactively sync - messages are pushed to them
 
@@ -220,7 +221,7 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # Coordinator settings
 # The coordinator is a dedicated OpenCode session that facilitates agent collaboration
 # COORDINATOR_ENABLED: Enable the coordinator agent (default: true)
-# COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/claude-opus-4-5)
+# COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/claude-opus-4-6)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
 COORDINATOR_ENABLED = bool(
@@ -230,7 +231,7 @@ COORDINATOR_MODEL = str(
     _get_config_value(
         "AGENT_HUB_COORDINATOR_MODEL",
         ["coordinator", "model"],
-        "opencode/claude-opus-4-5",
+        "opencode/claude-opus-4-6",
         _CONFIG,
     )
 )
@@ -255,6 +256,10 @@ _coordinator_agents_md_str = str(
 COORDINATOR_AGENTS_MD: Path | None = (
     Path(os.path.expanduser(_coordinator_agents_md_str)) if _coordinator_agents_md_str else None
 )
+# Fixed title used when creating coordinator sessions via `opencode run --title`.
+# Used by find_coordinator_session() as a fallback to identify the coordinator
+# when COORDINATOR_SESSION_ID is not yet set (e.g., daemon restart with existing session).
+COORDINATOR_TITLE = "agent-hub-coordinator"
 
 # Track message timestamps per agent for rate limiting
 _agent_message_times: dict[str, list[float]] = {}
@@ -463,8 +468,7 @@ def load_session_agents() -> dict[str, dict]:
 # Hub server process (launched by daemon if needed)
 HUB_SERVER_PROCESS: subprocess.Popen | None = None
 
-# Coordinator process (dedicated OpenCode session for facilitating collaboration)
-COORDINATOR_PROCESS: subprocess.Popen | None = None
+# Coordinator session (lives on hub server, no local process needed)
 COORDINATOR_SESSION_ID: str | None = None
 
 logging.basicConfig(
@@ -1150,16 +1154,45 @@ You are the coordinator for a multi-agent system. Your job is to facilitate coll
     return True
 
 
+def _parse_session_id_from_json_output(stdout: bytes | None) -> str | None:
+    """Extract session ID from `opencode run --format json` output.
+
+    The JSON output is newline-delimited JSON events. Every event contains
+    a "sessionID" field. We parse the first line to extract it.
+
+    Returns the session ID string or None if parsing fails.
+    """
+    if not stdout:
+        return None
+    try:
+        first_line = stdout.split(b"\n", 1)[0].strip()
+        if not first_line:
+            return None
+        event = json.loads(first_line)
+        session_id = event.get("sessionID")
+        if session_id and isinstance(session_id, str) and session_id.startswith("ses_"):
+            return session_id
+        return None
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as e:
+        log.warning(f"Failed to parse coordinator JSON output: {e}")
+        return None
+
+
 def find_coordinator_session() -> str | None:
-    """Find the coordinator's session ID from active sessions."""
+    """Find the coordinator's session on the hub server.
+
+    Used as a recovery mechanism when COORDINATOR_SESSION_ID is not set
+    (e.g., after daemon restart when a coordinator session already exists
+    on a still-running hub). Matches by the well-known COORDINATOR_TITLE.
+    """
     sessions = get_sessions_uncached()
     for session in sessions:
-        if session.get("directory") == str(COORDINATOR_DIR):
+        if session.get("title") == COORDINATOR_TITLE:
             return session.get("id")
     return None
 
 
-def start_coordinator() -> subprocess.Popen | None:
+def start_coordinator() -> bool:
     """Start the coordinator OpenCode session.
 
     The coordinator is a dedicated agent that facilitates collaboration
@@ -1167,24 +1200,32 @@ def start_coordinator() -> subprocess.Popen | None:
     - Capturing what each agent is working on
     - Matching agents with related tasks
     - Facilitating introductions
+
+    Uses `opencode run --attach` to create a persistent session on the hub
+    server. The `run` process exits after the initial prompt is processed,
+    but the session remains alive on the hub server and can receive
+    injected messages via prompt_async.
+
+    Returns True if coordinator session is ready, False otherwise.
     """
-    global COORDINATOR_PROCESS, COORDINATOR_SESSION_ID
+    global COORDINATOR_SESSION_ID
 
     if not COORDINATOR_ENABLED:
         log.info("Coordinator disabled via AGENT_HUB_COORDINATOR=false")
-        return None
+        return False
 
     # Set up coordinator directory
     if not setup_coordinator_directory():
         log.error("Failed to set up coordinator directory")
-        return None
+        return False
 
-    # Check if coordinator session already exists
+    # Check if coordinator session already exists on hub
     existing_session = find_coordinator_session()
     if existing_session:
         COORDINATOR_SESSION_ID = existing_session
+        ORIENTED_SESSIONS.add(existing_session)  # Prevent phantom agent creation
         log.info(f"Coordinator session already exists: {existing_session[:8]}")
-        return None
+        return True
 
     log.info(f"Starting coordinator with model {COORDINATOR_MODEL}...")
 
@@ -1192,66 +1233,88 @@ def start_coordinator() -> subprocess.Popen | None:
     opencode_bin = shutil.which("opencode")
     if not opencode_bin:
         log.error("opencode binary not found in PATH")
-        return None
+        return False
 
-    # Launch coordinator session
+    # Launch coordinator session via `opencode run --attach --format json`
+    # This creates a session on the hub server, sends the initial prompt,
+    # then exits. The session persists on the hub and accepts prompt_async
+    # injections. Using --format json lets us capture the session ID from
+    # the first JSON event's sessionID field.
     try:
         log_dir = Path.home() / ".local/share/agent-hub-daemon"
         log_dir.mkdir(parents=True, exist_ok=True)
-        coord_stdout = open(log_dir / "coordinator-stdout.log", "a")  # noqa: SIM115
-        coord_stderr = open(log_dir / "coordinator-stderr.log", "a")  # noqa: SIM115
+        coord_stderr_path = log_dir / "coordinator-stderr.log"
 
-        # Start opencode in the coordinator directory with specified model
-        # Using 'run' subcommand with initial prompt to start the session
-        COORDINATOR_PROCESS = subprocess.Popen(
-            [
-                opencode_bin,
-                "--model",
-                COORDINATOR_MODEL,
-                "--prompt",
-                "You are the coordinator agent. Wait for NEW_AGENT notifications and facilitate collaboration between agents. Use agent-hub_sync to check current state.",
-                str(COORDINATOR_DIR),
-            ],
-            stdout=coord_stdout,
-            stderr=coord_stderr,
-            cwd=str(COORDINATOR_DIR),
-            start_new_session=True,
-        )
+        cmd = [
+            opencode_bin,
+            "run",
+            "--attach",
+            OPENCODE_URL,
+            "--model",
+            COORDINATOR_MODEL,
+            "--title",
+            COORDINATOR_TITLE,
+            "--format",
+            "json",
+            "--print-logs",
+            "You are the coordinator agent. Wait for NEW_AGENT notifications and facilitate collaboration between agents. Use agent-hub_sync to check current state.",
+        ]
 
-        # Wait for session to appear
-        for _ in range(30):  # 15 seconds max
-            time.sleep(0.5)
-            session_id = find_coordinator_session()
-            if session_id:
-                COORDINATOR_SESSION_ID = session_id
-                log.info(
-                    f"Coordinator started (PID {COORDINATOR_PROCESS.pid}, session {session_id[:8]})"
-                )
-                return COORDINATOR_PROCESS
+        log.info(f"Running: {' '.join(cmd[:6])}...")
 
-        log.error("Coordinator session failed to appear within timeout")
-        COORDINATOR_PROCESS.terminate()
-        COORDINATOR_PROCESS = None
-        return None
+        with open(coord_stderr_path, "a") as coord_stderr:  # noqa: SIM115
+            result = subprocess.run(
+                cmd,
+                capture_output=False,
+                stdout=subprocess.PIPE,
+                stderr=coord_stderr,
+                cwd=str(COORDINATOR_DIR),
+                timeout=120,  # 2 minutes max for initial prompt
+            )
 
+        if result.returncode != 0:
+            log.error(f"Coordinator run exited with code {result.returncode}")
+            return False
+
+        # Extract session ID from JSON output (first line has sessionID field)
+        session_id = _parse_session_id_from_json_output(result.stdout)
+        if session_id:
+            COORDINATOR_SESSION_ID = session_id
+            ORIENTED_SESSIONS.add(session_id)  # Prevent phantom agent creation
+            log.info(f"Coordinator session created: {session_id[:8]}")
+            return True
+
+        # Fallback: search hub for coordinator session by title
+        log.warning("Could not parse session ID from coordinator output, searching hub...")
+        session_id = find_coordinator_session()
+        if session_id:
+            COORDINATOR_SESSION_ID = session_id
+            ORIENTED_SESSIONS.add(session_id)  # Prevent phantom agent creation
+            log.info(f"Coordinator session found by title: {session_id[:8]}")
+            return True
+
+        log.error("Coordinator run completed but session not found")
+        return False
+
+    except subprocess.TimeoutExpired:
+        log.error("Coordinator initial prompt timed out after 120s")
+        return False
     except Exception as e:
         log.error(f"Failed to start coordinator: {e}")
-        return None
+        return False
 
 
 def stop_coordinator() -> None:
-    """Stop the coordinator session."""
-    global COORDINATOR_PROCESS, COORDINATOR_SESSION_ID
+    """Clear coordinator session tracking.
 
-    if COORDINATOR_PROCESS is not None:
-        log.info(f"Stopping coordinator (PID {COORDINATOR_PROCESS.pid})...")
-        try:
-            COORDINATOR_PROCESS.terminate()
-            COORDINATOR_PROCESS.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            log.warning("Coordinator didn't stop gracefully, killing...")
-            COORDINATOR_PROCESS.kill()
-        COORDINATOR_PROCESS = None
+    The coordinator session lives on the hub server, not as a local process.
+    It is destroyed when the hub server shuts down. This function just clears
+    the daemon's tracking state.
+    """
+    global COORDINATOR_SESSION_ID
+
+    if COORDINATOR_SESSION_ID is not None:
+        log.info(f"Clearing coordinator session: {COORDINATOR_SESSION_ID[:8]}")
         COORDINATOR_SESSION_ID = None
 
 
@@ -1658,8 +1721,10 @@ def orient_session(session_id: str, agent: dict, all_agents: dict[str, dict]) ->
     agent_id = agent.get("id", "unknown")
     directory = agent.get("projectPath", "")
 
-    # Skip coordinator session itself
-    if directory == str(COORDINATOR_DIR):
+    # Skip coordinator session itself — match by session ID, not directory,
+    # because OpenCode resolves directory to the hub server's project root
+    # rather than honouring the cwd passed to `opencode run`.
+    if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
         ORIENTED_SESSIONS.add(session_id)
         save_oriented_sessions()
         return True
@@ -1706,6 +1771,12 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     if not directory:
         return
 
+    # Skip coordinator session — it should not get an agent identity
+    if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
+        ORIENTED_SESSIONS.add(session_id)
+        log.debug(f"Skipping coordinator session {session_id[:8]} in file watcher")
+        return
+
     # Get or auto-create agent for this session (unique per session)
     agent = get_or_create_agent_for_session(session, agents)
     log.info(f"File watcher: new session {session_id[:8]}, orienting as {agent.get('id')}")
@@ -1740,6 +1811,12 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
 
         directory = session.get("directory", "")
         if not directory:
+            continue
+
+        # Skip coordinator session — it should not get an agent identity
+        if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
+            ORIENTED_SESSIONS.add(session_id)
+            log.debug(f"Skipping coordinator session {session_id[:8]} in poller")
             continue
 
         # Get or auto-create agent for this session (unique per session)
@@ -2236,15 +2313,19 @@ Examples:
             shutdown_event.wait(10)  # Check every 10 seconds
 
     def coordinator_monitor():
-        """Background thread to monitor coordinator health."""
+        """Background thread to monitor coordinator session on hub server."""
         while not shutdown_event.is_set():
             if COORDINATOR_ENABLED:
-                if COORDINATOR_PROCESS is not None and COORDINATOR_PROCESS.poll() is not None:
-                    log.warning("Coordinator died, restarting...")
-                    start_coordinator()
-                elif COORDINATOR_PROCESS is None and COORDINATOR_SESSION_ID is None:
+                if COORDINATOR_SESSION_ID is None:
                     # Coordinator not started yet or failed to start
+                    log.info("Coordinator session not found, starting...")
                     start_coordinator()
+                else:
+                    # Verify session still exists on hub
+                    session = find_coordinator_session()
+                    if session is None:
+                        log.warning("Coordinator session disappeared from hub, restarting...")
+                        start_coordinator()
             shutdown_event.wait(30)  # Check every 30 seconds
 
     def metrics_worker():
