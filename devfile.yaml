@@ -1,0 +1,61 @@
+schemaVersion: 2.2.0
+metadata:
+  name: opencode-agent-hub
+  version: 1.0.0
+  displayName: OpenCode Agent Hub
+  description: Multi-agent coordination daemon and tools for OpenCode
+  tags: ["python", "opencode", "agent-hub"]
+  projectType: python
+  language: python
+attributes:
+  alpha.dockerimage-port: 3000
+components:
+  - name: tools
+    container:
+      image: ghcr.io/astral-sh/uv:latest
+      args: ["tail", "-f", "/dev/null"]
+      mountSources: true
+      env:
+        - name: PYTHONPATH
+          value: /projects/opencode-agent-hub/src
+  - name: opencode
+    container:
+      image: ghcr.io/xnoto/opencode:latest
+      args: ["tail", "-f", "/dev/null"]
+      mountSources: true
+commands:
+  - id: install
+    exec:
+      component: tools
+      commandLine: uv sync
+      group:
+        kind: build
+        isDefault: true
+  - id: test
+    exec:
+      component: tools
+      commandLine: uv run pytest
+      group:
+        kind: test
+        isDefault: true
+  - id: lint
+    exec:
+      component: tools
+      commandLine: uv run ruff check .
+      group:
+        kind: test
+  - id: format
+    exec:
+      component: tools
+      commandLine: uv run ruff format .
+      group:
+        kind: build
+  - id: run-daemon
+    exec:
+      component: tools
+      commandLine: uv run agent-hub-daemon
+      group:
+        kind: run
+events:
+  postStart:
+    - install
