@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.1.0...v1.1.1) (2026-02-14)
+
+
+### Bug Fixes
+
+* **ci:** build RPM on fedora:43 for Python 3.13 compatibility ([307eef5](https://github.com/xnoto/opencode-agent-hub/commit/307eef5097a4c84edf68c8cb9b055db2a085037d))
+* **ci:** build RPM on fedora:43 for Python 3.13 compatibility ([37b9ef5](https://github.com/xnoto/opencode-agent-hub/commit/37b9ef521e61917fa1e8097aba24d31101d73d58))
+
+
+### Documentation
+
+* simplify quickstart to show uv run commands only ([fef8513](https://github.com/xnoto/opencode-agent-hub/commit/fef8513c2bf7f3d0df5adce44f415950e311d57b))
+* use simplified uv run commands ([1051b06](https://github.com/xnoto/opencode-agent-hub/commit/1051b0669d433da55084592c2fbe9b276bff2848))
+
 ## [1.1.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.0.3...v1.1.0) (2026-02-14)
 
 
