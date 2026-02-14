@@ -24,18 +24,23 @@ This project includes a `devfile.yaml` for consistent development environments. 
 
 1. Initialize and start the environment (using `odo`):
    ```bash
+   # If using a Kubernetes cluster:
    odo init
    odo dev
+
+   # If running locally with Podman:
+   odo dev --platform podman
    ```
 
 2. Run tests:
    ```bash
-   odo run --command test
+   # Syntax: odo run <command-name>
+   odo run test
    ```
 
 3. Run the daemon:
    ```bash
-   odo run --command run-daemon
+   odo run run-daemon
    ```
 
 ## Pre-commit Hooks
