@@ -18,6 +18,26 @@
    uv run agent-hub-daemon
    ```
 
+### Using Devfile (Standardized Environment)
+
+This project includes a `devfile.yaml` for consistent development environments. You can use tools like `odo` or cloud IDEs (Eclipse Che, OpenShift Dev Spaces) to automatically provision the environment.
+
+1. Initialize and start the environment (using `odo`):
+   ```bash
+   odo init
+   odo dev
+   ```
+
+2. Run tests:
+   ```bash
+   odo run --command test
+   ```
+
+3. Run the daemon:
+   ```bash
+   odo run --command run-daemon
+   ```
+
 ## Pre-commit Hooks
 
 Install pre-commit hooks (required):
