@@ -795,7 +795,7 @@ def gc_oriented_sessions() -> int:
 
     # Get current sessions from API
     current_sessions = get_sessions()
-    if not current_sessions:
+    if current_sessions is None:
         return 0  # Don't clear on API failure
 
     now_ms = int(time.time() * 1000)
@@ -810,6 +810,10 @@ def gc_oriented_sessions() -> int:
         updated = s.get("time", {}).get("updated", 0)
         if now_ms - updated < stale_threshold_ms:
             active_ids.add(session_id)
+
+    # Always keep coordinator session active regardless of update time
+    if COORDINATOR_SESSION_ID:
+        active_ids.add(COORDINATOR_SESSION_ID)
 
     # Keep only recently active sessions in oriented cache
     stale = ORIENTED_SESSIONS - active_ids
@@ -839,7 +843,7 @@ def gc_session_agents() -> int:
 
     # Get current sessions from API
     current_sessions = get_sessions()
-    if not current_sessions:
+    if current_sessions is None:
         return 0  # Don't clear on API failure
 
     # Build set of current session IDs
@@ -1263,6 +1267,9 @@ def find_coordinator_session() -> str | None:
     on a still-running hub). Matches by the well-known COORDINATOR_TITLE.
     """
     sessions = get_sessions_uncached()
+    if sessions is None:
+        return None
+
     for session in sessions:
         if session.get("title") == COORDINATOR_TITLE:
             return session.get("id")
@@ -1488,7 +1495,7 @@ def poll_coordinator_cost() -> None:
 # =============================================================================
 
 
-def get_sessions_uncached() -> list[dict]:
+def get_sessions_uncached() -> list[dict] | None:
     """Fetch active OpenCode sessions (direct API call)."""
     try:
         resp = requests.get(f"{OPENCODE_URL}/session", timeout=5)
@@ -1496,23 +1503,23 @@ def get_sessions_uncached() -> list[dict]:
         return resp.json()
     except requests.RequestException as e:
         log.error(f"Failed to fetch sessions: {e}")
-        return []
+        return None
 
 
-def get_sessions() -> list[dict]:
+def get_sessions() -> list[dict] | None:
     """Fetch sessions with caching to avoid repeated API calls."""
     global _sessions_cache, _sessions_cache_time
 
     now = time.time()
     with _sessions_cache_lock:
-        if now - _sessions_cache_time < SESSION_CACHE_TTL and _sessions_cache:
+        if now - _sessions_cache_time < SESSION_CACHE_TTL and _sessions_cache is not None:
             metrics.inc("agent_hub_cache_hits_total")
             return _sessions_cache
 
         # Cache miss or expired
         metrics.inc("agent_hub_cache_misses_total")
         sessions = get_sessions_uncached()
-        if sessions:  # Only update cache on success
+        if sessions is not None:  # Only update cache on success
             _sessions_cache = sessions
             _sessions_cache_time = now
         return sessions
