@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.3](https://github.com/xnoto/opencode-agent-hub/compare/v1.0.2...v1.0.3) (2026-02-13)
+
+
+### Bug Fixes
+
+* **daemon:** fix coordinator startup, session matching, and self-registration race ([6f14459](https://github.com/xnoto/opencode-agent-hub/commit/6f1445907843e162223a7e426aa892c55488b3c2))
+* **daemon:** fix coordinator startup, session matching, and self-registration race ([1d5e658](https://github.com/xnoto/opencode-agent-hub/commit/1d5e658a4fed11c91b47291e992023ed11dd8481))
+* **daemon:** keep opencode/ as model provider prefix instead of anthropic/ ([c9cffa9](https://github.com/xnoto/opencode-agent-hub/commit/c9cffa903a59a56858f654263d506b0a261f000f))
+
 ## [1.0.2](https://github.com/xnoto/opencode-agent-hub/compare/v1.0.1...v1.0.2) (2026-02-13)
 
 
