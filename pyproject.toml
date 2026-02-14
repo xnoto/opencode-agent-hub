@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opencode-agent-hub"
-version = "1.0.3"
+version = "1.1.0"
 description = "Multi-agent coordination daemon and tools for OpenCode"
 readme = "README.md"
 license = "MIT"
