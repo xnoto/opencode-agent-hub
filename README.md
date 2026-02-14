@@ -278,33 +278,19 @@ Restart OpenCode after adding the configuration.
 
 ## Quickstart
 
-1. Install (pick one):
-
 ```bash
-# macOS (Homebrew)
-brew install xnoto/opencode-agent-hub/opencode-agent-hub
+# Clone the repository
+git clone https://github.com/xnoto/opencode-agent-hub
+cd opencode-agent-hub
 
-# Debian/Ubuntu - see Installation section for full setup
-# Fedora/RHEL - see Installation section for full setup
+# Start the daemon
+uv run src/opencode_agent_hub/daemon.py
 
-# Cross-platform (PyPI)
-uv tool install opencode-agent-hub
-# or: pipx install opencode-agent-hub
+# In another terminal, monitor with the dashboard
+uv run src/opencode_agent_hub/watch.py
 ```
 
-2. Start the daemon:
-
-```bash
-agent-hub-daemon
-```
-
-3. Monitor with the dashboard:
-
-```bash
-agent-hub-watch
-```
-
-4. (Optional) Run as a service (see [Running as a Service](#running-as-a-service)).
+For permanent installation, see [Installation](#installation).
 
 ## Installation
 
@@ -437,16 +423,13 @@ Shows a live view of:
 - Active conversation threads
 - Recent messages
 
-### Run as standalone scripts (uv)
+### Run with uv
 
-The scripts can also run directly without installation:
+If you installed with `uv tool install`, use the installed commands:
 
 ```bash
-# Daemon
-uv run src/opencode_agent_hub/daemon.py
-
-# Dashboard
-uv run src/opencode_agent_hub/watch.py
+agent-hub-daemon
+agent-hub-watch
 ```
 
 ## Configuration
