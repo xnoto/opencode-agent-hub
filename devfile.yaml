@@ -18,11 +18,6 @@ components:
       env:
         - name: PYTHONPATH
           value: /projects/opencode-agent-hub/src
-  - name: opencode
-    container:
-      image: ghcr.io/xnoto/opencode:latest
-      args: ["tail", "-f", "/dev/null"]
-      mountSources: true
 commands:
   - id: install
     exec:
