@@ -4,7 +4,6 @@ Verifies that the daemon polls coordinator session messages,
 computes token sums and estimated costs, and updates metrics.
 """
 
-import time
 from unittest import mock
 
 
