@@ -196,6 +196,21 @@ METRICS_INTERVAL = int(
     _get_config_value("AGENT_HUB_METRICS_INTERVAL", ["metrics_interval"], 30, _CONFIG, int)
 )
 
+# Orientation retry settings
+# When a new session is oriented but never responds, retry the orientation injection
+# up to ORIENTATION_RETRY_MAX times, waiting ORIENTATION_RETRY_DELAY seconds between attempts.
+# This handles the case where an agent session is busy and misses the initial orientation.
+ORIENTATION_RETRY_MAX = int(
+    _get_config_value(
+        "AGENT_HUB_ORIENTATION_RETRY_MAX", ["orientation", "retry_max"], 2, _CONFIG, int
+    )
+)
+ORIENTATION_RETRY_DELAY = int(
+    _get_config_value(
+        "AGENT_HUB_ORIENTATION_RETRY_DELAY", ["orientation", "retry_delay"], 60, _CONFIG, int
+    )
+)
+
 # Rate limiting settings (disabled by default)
 # RATE_LIMIT_ENABLED: Enable per-agent message rate limiting
 # RATE_LIMIT_MAX_MESSAGES: Max messages per agent per window (default: 10)
@@ -261,6 +276,43 @@ COORDINATOR_AGENTS_MD: Path | None = (
 # when COORDINATOR_SESSION_ID is not yet set (e.g., daemon restart with existing session).
 COORDINATOR_TITLE = "agent-hub-coordinator"
 
+# Coordinator cost estimation pricing (per token, NOT per million tokens)
+# Default prices: Anthropic Claude Opus 4 pricing as of 2025-05
+# Override via env vars or config file ["coordinator"]["pricing"][...]
+# Set all to 0 to disable cost estimation (tokens still tracked)
+PRICING_INPUT = float(
+    _get_config_value(
+        "AGENT_HUB_PRICING_INPUT",
+        ["coordinator", "pricing", "input"],
+        "0.000015",  # $15/MTok
+        _CONFIG,
+    )
+)
+PRICING_OUTPUT = float(
+    _get_config_value(
+        "AGENT_HUB_PRICING_OUTPUT",
+        ["coordinator", "pricing", "output"],
+        "0.000075",  # $75/MTok
+        _CONFIG,
+    )
+)
+PRICING_CACHE_READ = float(
+    _get_config_value(
+        "AGENT_HUB_PRICING_CACHE_READ",
+        ["coordinator", "pricing", "cache_read"],
+        "0.0000015",  # $1.50/MTok
+        _CONFIG,
+    )
+)
+PRICING_CACHE_WRITE = float(
+    _get_config_value(
+        "AGENT_HUB_PRICING_CACHE_WRITE",
+        ["coordinator", "pricing", "cache_write"],
+        "0.00001875",  # $18.75/MTok
+        _CONFIG,
+    )
+)
+
 # Track message timestamps per agent for rate limiting
 _agent_message_times: dict[str, list[float]] = {}
 
@@ -272,6 +324,11 @@ ORIENTED_SESSIONS: set[str] = set()
 # Structure: {session_id: {"agentId": str, "directory": str, "slug": str | None}}
 SESSION_AGENTS: dict[str, dict] = {}
 SESSION_AGENTS_FILE = AGENT_HUB_DIR / "session_agents.json"
+
+# Orientation retry tracking
+# Tracks sessions that have been oriented but haven't responded yet.
+# Structure: {session_id: {"oriented_at": float (time.time()), "retries": int, "agent_id": str}}
+ORIENTATION_PENDING: dict[str, dict] = {}
 
 # Daemon start time - only orient sessions created after this
 DAEMON_START_TIME_MS: int = int(time.time() * 1000)
@@ -323,18 +380,26 @@ class PrometheusMetrics:
             "agent_hub_agents_auto_created_total": 0,
             "agent_hub_cache_hits_total": 0,
             "agent_hub_cache_misses_total": 0,
+            "agent_hub_orientation_retries_total": 0,
+            "agent_hub_orientation_gave_up_total": 0,
             "agent_hub_gc_runs_total": 0,
             "agent_hub_gc_sessions_cleaned_total": 0,
             "agent_hub_gc_agents_cleaned_total": 0,
             "agent_hub_gc_messages_archived_total": 0,
+            "agent_hub_coordinator_tokens_input": 0,
+            "agent_hub_coordinator_tokens_output": 0,
+            "agent_hub_coordinator_tokens_cache_read": 0,
+            "agent_hub_coordinator_tokens_cache_write": 0,
+            "agent_hub_coordinator_messages_total": 0,
         }
 
         # Gauges (can increase or decrease)
-        self._gauges = {
+        self._gauges: dict[str, int | float] = {
             "agent_hub_active_agents": 0,
             "agent_hub_oriented_sessions": 0,
             "agent_hub_injection_queue_size": 0,
             "agent_hub_message_queue_size": 0,
+            "agent_hub_coordinator_estimated_cost_usd": 0.0,
         }
 
         # Metadata for metrics
@@ -348,10 +413,18 @@ class PrometheusMetrics:
             "agent_hub_agents_auto_created_total": "Total agents auto-created from sessions",
             "agent_hub_cache_hits_total": "Total session cache hits",
             "agent_hub_cache_misses_total": "Total session cache misses",
+            "agent_hub_orientation_retries_total": "Total orientation retry attempts for unresponsive sessions",
+            "agent_hub_orientation_gave_up_total": "Total sessions that never responded after all orientation retries",
             "agent_hub_gc_runs_total": "Total garbage collection runs",
             "agent_hub_gc_sessions_cleaned_total": "Total stale sessions cleaned by GC",
             "agent_hub_gc_agents_cleaned_total": "Total stale agents cleaned by GC",
             "agent_hub_gc_messages_archived_total": "Total messages archived by GC",
+            "agent_hub_coordinator_tokens_input": "Coordinator cumulative input tokens",
+            "agent_hub_coordinator_tokens_output": "Coordinator cumulative output tokens",
+            "agent_hub_coordinator_tokens_cache_read": "Coordinator cumulative cache read tokens",
+            "agent_hub_coordinator_tokens_cache_write": "Coordinator cumulative cache write tokens",
+            "agent_hub_coordinator_messages_total": "Coordinator total assistant messages processed",
+            "agent_hub_coordinator_estimated_cost_usd": "Estimated coordinator cost in USD",
             "agent_hub_active_agents": "Current number of registered agents",
             "agent_hub_oriented_sessions": "Current number of oriented sessions",
             "agent_hub_injection_queue_size": "Current injection queue depth",
@@ -368,7 +441,7 @@ class PrometheusMetrics:
     def set_gauge(self, name: str, value: int | float) -> None:
         """Set a gauge value."""
         with self._lock:
-            self._gauges[name] = int(value)
+            self._gauges[name] = value
 
     def get(self, name: str) -> float:
         """Get current value of a metric."""
@@ -398,11 +471,11 @@ class PrometheusMetrics:
                 lines.append(f"{name} {value}")
 
             # Gauges
-            for name, value in self._gauges.items():
-                if name in self._help:
-                    lines.append(f"# HELP {name} {self._help[name]}")
-                lines.append(f"# TYPE {name} gauge")
-                lines.append(f"{name} {value}")
+            for gname, gvalue in self._gauges.items():
+                if gname in self._help:
+                    lines.append(f"# HELP {gname} {self._help[gname]}")
+                lines.append(f"# TYPE {gname} gauge")
+                lines.append(f"{gname} {gvalue}")
 
         return "\n".join(lines) + "\n"
 
@@ -420,13 +493,17 @@ class PrometheusMetrics:
                 else f"{seconds}s"
             )
 
+            coord_cost = self._gauges.get("agent_hub_coordinator_estimated_cost_usd", 0)
+            coord_msgs = self._counters.get("agent_hub_coordinator_messages_total", 0)
+
             return (
                 f"uptime={uptime_str} "
                 f"msgs={self._counters['agent_hub_messages_total']}/{self._counters['agent_hub_messages_failed_total']} "
                 f"inj={self._counters['agent_hub_injections_total']}/{self._counters['agent_hub_injections_failed_total']} "
                 f"orient={self._counters['agent_hub_sessions_oriented_total']} "
                 f"cache={self._counters['agent_hub_cache_hits_total']}/{self._counters['agent_hub_cache_misses_total']} "
-                f"gc={self._counters['agent_hub_gc_runs_total']}"
+                f"gc={self._counters['agent_hub_gc_runs_total']} "
+                f"coord=${coord_cost:.4f}/{coord_msgs}msgs"
             )
 
 
@@ -1332,6 +1409,80 @@ def notify_coordinator_new_agent(agent_id: str, directory: str) -> None:
     log.info(f"Notified coordinator of new agent: {agent_id}")
 
 
+def poll_coordinator_cost() -> None:
+    """Poll coordinator session messages and update cost/token metrics.
+
+    Fetches all messages from the coordinator session via the OpenCode API,
+    sums token usage from assistant messages, computes estimated USD cost
+    using the configured pricing table, and updates Prometheus metrics.
+
+    Token counts are set as absolute values (not incremented) since we
+    re-sum from the full message history each poll. This is idempotent
+    and self-correcting.
+    """
+    if not COORDINATOR_ENABLED or not COORDINATOR_SESSION_ID:
+        return
+
+    try:
+        resp = requests.get(
+            f"{OPENCODE_URL}/session/{COORDINATOR_SESSION_ID}/message",
+            timeout=INJECTION_TIMEOUT,
+        )
+        resp.raise_for_status()
+        messages = resp.json()
+    except requests.RequestException as e:
+        log.debug(f"Failed to fetch coordinator messages for cost tracking: {e}")
+        return
+    except (ValueError, TypeError):
+        return
+
+    if not isinstance(messages, list):
+        return
+
+    # Sum token usage from all assistant messages
+    total_input = 0
+    total_output = 0
+    total_cache_read = 0
+    total_cache_write = 0
+    assistant_count = 0
+
+    for msg in messages:
+        info = msg.get("info", {})
+        if info.get("role") != "assistant":
+            continue
+
+        tokens = info.get("tokens", {})
+        total_input += tokens.get("input", 0)
+        total_output += tokens.get("output", 0)
+        cache = tokens.get("cache", {})
+        total_cache_read += cache.get("read", 0)
+        total_cache_write += cache.get("write", 0)
+        assistant_count += 1
+
+    # Compute estimated cost
+    estimated_cost = (
+        total_input * PRICING_INPUT
+        + total_output * PRICING_OUTPUT
+        + total_cache_read * PRICING_CACHE_READ
+        + total_cache_write * PRICING_CACHE_WRITE
+    )
+
+    # Update metrics (set absolute values, not increments)
+    with metrics._lock:
+        metrics._counters["agent_hub_coordinator_tokens_input"] = total_input
+        metrics._counters["agent_hub_coordinator_tokens_output"] = total_output
+        metrics._counters["agent_hub_coordinator_tokens_cache_read"] = total_cache_read
+        metrics._counters["agent_hub_coordinator_tokens_cache_write"] = total_cache_write
+        metrics._counters["agent_hub_coordinator_messages_total"] = assistant_count
+    metrics.set_gauge("agent_hub_coordinator_estimated_cost_usd", round(estimated_cost, 6))
+
+    log.debug(
+        f"Coordinator cost: ${estimated_cost:.4f} "
+        f"({assistant_count} msgs, {total_input}in/{total_output}out/"
+        f"{total_cache_read}cr/{total_cache_write}cw tokens)"
+    )
+
+
 # =============================================================================
 # OpenCode Integration
 # =============================================================================
@@ -1740,8 +1891,82 @@ def orient_session(session_id: str, agent: dict, all_agents: dict[str, dict]) ->
     save_oriented_sessions()
     metrics.inc("agent_hub_sessions_oriented_total")
     metrics.set_gauge("agent_hub_oriented_sessions", len(ORIENTED_SESSIONS))
+
+    # Track for retry if agent doesn't respond
+    if ORIENTATION_RETRY_MAX > 0:
+        ORIENTATION_PENDING[session_id] = {
+            "oriented_at": time.time(),
+            "retries": 0,
+            "agent_id": agent_id,
+        }
+
     log.info(f"Oriented session {session_id[:8]} for agent {agent_id}")
     return True
+
+
+def check_orientation_retries(agents: dict[str, dict]) -> None:
+    """Re-inject orientation for sessions that haven't responded.
+
+    Checks ORIENTATION_PENDING for sessions where:
+    - More than ORIENTATION_RETRY_DELAY seconds have passed since last attempt
+    - Retries < ORIENTATION_RETRY_MAX
+
+    A session is considered "responded" when its agent's lastSeen timestamp
+    (updated by agent-hub MCP register_agent) is newer than the orientation time.
+
+    After ORIENTATION_RETRY_MAX retries without response, the session is
+    removed from pending and a warning is logged.
+    """
+    if not ORIENTATION_PENDING:
+        return
+
+    now = time.time()
+    resolved: list[str] = []
+
+    for session_id, pending in ORIENTATION_PENDING.items():
+        agent_id = pending["agent_id"]
+        oriented_at = pending["oriented_at"]
+        retries = pending["retries"]
+
+        # Check if agent has responded (lastSeen updated after orientation)
+        agent = agents.get(agent_id)
+        if agent:
+            last_seen_s = agent.get("lastSeen", 0) / 1000  # Convert ms to s
+            if last_seen_s > oriented_at:
+                resolved.append(session_id)
+                log.debug(f"Session {session_id[:8]} agent {agent_id} responded, clearing retry")
+                continue
+
+        elapsed = now - oriented_at
+        if elapsed < ORIENTATION_RETRY_DELAY:
+            continue  # Not yet time to retry
+
+        if retries >= ORIENTATION_RETRY_MAX:
+            # Give up
+            resolved.append(session_id)
+            metrics.inc("agent_hub_orientation_gave_up_total")
+            log.warning(
+                f"Session {session_id[:8]} agent {agent_id} never responded "
+                f"after {retries} orientation retries, giving up"
+            )
+            continue
+
+        # Retry: re-inject orientation
+        orientation = format_orientation(
+            agent or {"id": agent_id, "projectPath": ""},
+            agents,
+        )
+        inject_message(session_id, orientation)
+        pending["retries"] = retries + 1
+        pending["oriented_at"] = now  # Reset timer for next retry window
+        metrics.inc("agent_hub_orientation_retries_total")
+        log.info(
+            f"Orientation retry {pending['retries']}/{ORIENTATION_RETRY_MAX} "
+            f"for session {session_id[:8]} agent {agent_id}"
+        )
+
+    for session_id in resolved:
+        del ORIENTATION_PENDING[session_id]
 
 
 def process_session_file(path: Path, agents: dict[str, dict]) -> None:
@@ -2220,12 +2445,13 @@ Examples:
     # Load persisted state
     # Fresh start: clear oriented sessions and session-agent mappings from previous runs
     # Only sessions created AFTER daemon starts will be oriented
-    global ORIENTED_SESSIONS, SESSION_AGENTS, DAEMON_START_TIME_MS
+    global ORIENTED_SESSIONS, SESSION_AGENTS, DAEMON_START_TIME_MS, ORIENTATION_PENDING
     DAEMON_START_TIME_MS = int(time.time() * 1000)
     ORIENTED_SESSIONS = set()
     save_oriented_sessions()
     SESSION_AGENTS = {}
     save_session_agents()
+    ORIENTATION_PENDING = {}
 
     log.info(f"Daemon starting at {DAEMON_START_TIME_MS} - only new sessions will be oriented")
     log.info(f"Watching messages: {MESSAGES_DIR}")
@@ -2291,6 +2517,7 @@ Examples:
         while not shutdown_event.is_set():
             try:
                 poll_active_sessions(agents)
+                check_orientation_retries(agents)
             except Exception as e:
                 log.error(f"Session poller error: {e}")
             shutdown_event.wait(SESSION_POLL_SECONDS)
@@ -2335,6 +2562,9 @@ Examples:
                 # Update queue gauges
                 metrics.set_gauge("agent_hub_injection_queue_size", _injection_queue.qsize())
                 metrics.set_gauge("agent_hub_message_queue_size", _message_queue.qsize())
+
+                # Update coordinator cost metrics
+                poll_coordinator_cost()
 
                 # Write Prometheus metrics file
                 METRICS_FILE.write_text(metrics.to_prometheus())
