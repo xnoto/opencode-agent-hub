@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.1.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.0.3...v1.1.0) (2026-02-14)
+
+
+### Features
+
+* **dev:** add devfile.yaml for consistent development environments ([bc4300d](https://github.com/xnoto/opencode-agent-hub/commit/bc4300df3f86911f67d84c49727c646a62f14123))
+* **hub:** add orientation retries and coordinator cost metrics ([18fb6c9](https://github.com/xnoto/opencode-agent-hub/commit/18fb6c90aa07c3819d4b97751b1dec7d947810b9))
+* **hub:** add orientation retries and coordinator cost metrics ([cbefa5e](https://github.com/xnoto/opencode-agent-hub/commit/cbefa5e3f5b14ea78c1a6ec02edb8ef3364958f9))
+
+
+### Bug Fixes
+
+* **daemon:** fix GC hanging on empty session list and exempt coordinator from pruning ([c044129](https://github.com/xnoto/opencode-agent-hub/commit/c044129c665b6b7108a8ac945e358f0b3eb3d9a6))
+* **dev:** remove private opencode container from devfile ([cd1dfc7](https://github.com/xnoto/opencode-agent-hub/commit/cd1dfc7e3f7e70b4c3bf1194f3d071f0938e1521))
+* **dev:** use shell-equipped uv image in devfile ([d4cc1dc](https://github.com/xnoto/opencode-agent-hub/commit/d4cc1dcb5b83156660b901a0220af0c51d313a84))
+* **packaging:** add python3-pytest build dependency and use pytest for tests ([abc9d1a](https://github.com/xnoto/opencode-agent-hub/commit/abc9d1a57c8498ce94f73278dd59ab1448942bbb))
+
+
+### Reverts
+
+* remove devfile configuration ([79cf5ed](https://github.com/xnoto/opencode-agent-hub/commit/79cf5ed78f7b1d275f7727d4fc940c621437590e))
+
+
+### Documentation
+
+* **contributing:** add devfile instructions ([7a580b1](https://github.com/xnoto/opencode-agent-hub/commit/7a580b1f6a659b0df97723745d32208c2fb0b0b0))
+* **contributing:** fix odo run syntax and add podman instructions ([5e58a64](https://github.com/xnoto/opencode-agent-hub/commit/5e58a64bc44fca52cc28df7d2f15513bafdf4e6c))
+
 ## [1.0.3](https://github.com/xnoto/opencode-agent-hub/compare/v1.0.2...v1.0.3) (2026-02-13)
 
 
