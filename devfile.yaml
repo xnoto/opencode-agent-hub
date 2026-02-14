@@ -12,8 +12,10 @@ attributes:
 components:
   - name: tools
     container:
-      image: ghcr.io/astral-sh/uv:latest
-      args: ["tail", "-f", "/dev/null"]
+      # Use the python-based slim image to ensure we have a shell and coreutils (tail, etc.)
+      image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+      command: ["/bin/sh"]
+      args: ["-c", "tail -f /dev/null"]
       mountSources: true
       env:
         - name: PYTHONPATH
