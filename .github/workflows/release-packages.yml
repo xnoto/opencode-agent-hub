@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-python
     container:
-      image: fedora:42
+      image: fedora:43
     steps:
       - uses: actions/checkout@v4
 
