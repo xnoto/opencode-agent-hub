@@ -284,10 +284,10 @@ git clone https://github.com/xnoto/opencode-agent-hub
 cd opencode-agent-hub
 
 # Start the daemon
-uv run src/opencode_agent_hub/daemon.py
+uv run agent-hub-daemon
 
 # In another terminal, monitor with the dashboard
-uv run src/opencode_agent_hub/watch.py
+uv run agent-hub-watch
 ```
 
 For permanent installation, see [Installation](#installation).
@@ -430,6 +430,13 @@ If you installed with `uv tool install`, use the installed commands:
 ```bash
 agent-hub-daemon
 agent-hub-watch
+```
+
+Or from the repo root:
+
+```bash
+uv run agent-hub-daemon
+uv run agent-hub-watch
 ```
 
 ## Configuration
