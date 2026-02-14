@@ -200,9 +200,9 @@ def test_gc_session_agents_api_failure():
         "ses_keep": {"agentId": "keep-agent", "directory": "/keep"},
     }
 
-    # Mock get_sessions to return empty (simulating API failure)
+    # Mock get_sessions to return None (simulating API failure)
     with mock.patch.object(daemon, "get_sessions") as mock_get_sessions:
-        mock_get_sessions.return_value = []
+        mock_get_sessions.return_value = None
 
         cleaned = daemon.gc_session_agents()
 
