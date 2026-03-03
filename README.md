@@ -541,6 +541,7 @@ Configuration via environment variables:
 | `AGENT_HUB_COORDINATOR_READY_TIMEOUT` | `20` | Max seconds to wait for coordinator bootstrap `READY` acknowledgment |
 | `AGENT_HUB_COORDINATOR_STRICT_READY` | `false` | Require exact `READY` from coordinator bootstrap; otherwise assistant activity also counts as ready |
 | `AGENT_HUB_COORDINATOR_BOOTSTRAP_REQUIRED` | `false` | Fail daemon startup if coordinator bootstrap readiness is not observed within timeout |
+| `AGENT_HUB_HUB_MODEL` | `<coordinator model>` | Model used when daemon launches `opencode serve`; defaults to `AGENT_HUB_COORDINATOR_MODEL` |
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom path to coordinator AGENTS.md |
 

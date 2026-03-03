@@ -876,6 +876,65 @@ def test_wait_for_coordinator_ready_accepts_exact_ready_in_strict_mode() -> None
         daemon.COORDINATOR_STRICT_READY = original_strict
 
 
+def test_get_recent_hub_error_context_returns_session_errors() -> None:
+    """Verify hub error context helper extracts session-scoped error lines."""
+    from opencode_agent_hub import daemon
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_path = Path(tmpdir) / "hub-stderr.log"
+        log_path.write_text(
+            "INFO sessionID=ses_a all good\n"
+            "ERROR sessionID=ses_target first failure details\n"
+            "ERROR sessionID=ses_other unrelated\n"
+            "ERROR sessionID=ses_target second failure details\n"
+        )
+
+        with mock.patch.object(daemon, "HUB_STDERR_LOG_FILE", log_path):
+            ctx = daemon._get_recent_hub_error_context("ses_target")
+
+        assert "first failure details" in ctx
+        assert "second failure details" in ctx
+        assert "ses_other" not in ctx
+
+
+def test_find_opencode_serve_pids_on_port_filters_non_opencode() -> None:
+    """Verify PID discovery returns only opencode serve listeners."""
+    from opencode_agent_hub import daemon
+
+    lsof_out = mock.MagicMock()
+    lsof_out.stdout = "111\n222\n"
+
+    ps_opencode = mock.MagicMock()
+    ps_opencode.stdout = "opencode serve --port 4096"
+
+    ps_other = mock.MagicMock()
+    ps_other.stdout = "python -m http.server 4096"
+
+    with mock.patch("subprocess.run", side_effect=[lsof_out, ps_opencode, ps_other]):
+        pids = daemon._find_opencode_serve_pids_on_port()
+
+    assert pids == [111]
+
+
+def test_kill_opencode_serve_pids_escalates_to_sigkill() -> None:
+    """Verify process killer escalates to SIGKILL when still alive."""
+    from opencode_agent_hub import daemon
+
+    calls: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        calls.append((pid, sig))
+        if sig == 0:
+            return
+
+    with mock.patch("os.kill", side_effect=fake_kill), mock.patch("time.sleep"):
+        daemon._kill_opencode_serve_pids([123])
+
+    assert (123, daemon.signal.SIGTERM) in calls
+    assert (123, 0) in calls
+    assert (123, daemon.signal.SIGKILL) in calls
+
+
 # =============================================================================
 # Tests for coordinator self-registration race condition fix
 # =============================================================================

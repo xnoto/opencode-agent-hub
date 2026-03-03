@@ -294,6 +294,14 @@ COORDINATOR_BOOTSTRAP_REQUIRED = bool(
         bool,
     )
 )
+HUB_SERVER_MODEL = str(
+    _get_config_value(
+        "AGENT_HUB_HUB_MODEL",
+        ["hub", "model"],
+        COORDINATOR_MODEL,
+        _CONFIG,
+    )
+)
 _coordinator_dir_str = str(
     _get_config_value(
         "AGENT_HUB_COORDINATOR_DIR",
@@ -387,6 +395,26 @@ def _fetch_session_messages(session_id: str) -> list[dict[str, Any]]:
     except (ValueError, TypeError):
         return []
     return []
+
+
+def _get_recent_hub_error_context(session_id: str, max_entries: int = 2) -> str:
+    """Get concise recent hub error lines related to a session."""
+    if not HUB_STDERR_LOG_FILE.exists():
+        return ""
+
+    try:
+        lines = HUB_STDERR_LOG_FILE.read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+
+    sid_token = f"sessionID={session_id}"
+    related_errors = [line.strip() for line in lines if sid_token in line and "ERROR" in line]
+    if not related_errors:
+        return ""
+
+    tail = related_errors[-max_entries:]
+    clipped = [entry[:280] for entry in tail]
+    return " | ".join(clipped)
 
 
 def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int, after_ms: int = 0) -> bool:
@@ -651,6 +679,8 @@ metrics = PrometheusMetrics()
 # Metrics file location
 METRICS_FILE = AGENT_HUB_DIR / "metrics.prom"
 HUB_SERVER_PID_FILE = AGENT_HUB_DIR / "hub-server.pid"
+DAEMON_LOG_DIR = Path.home() / ".local/share/agent-hub-daemon"
+HUB_STDERR_LOG_FILE = DAEMON_LOG_DIR / "hub-stderr.log"
 
 
 def load_oriented_sessions() -> set[str]:
@@ -1238,6 +1268,62 @@ def is_hub_server_running() -> bool:
         return False
 
 
+def _find_opencode_serve_pids_on_port() -> list[int]:
+    """Find opencode serve PIDs listening on configured hub port."""
+    try:
+        out = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{OPENCODE_PORT}", "-sTCP:LISTEN", "-t"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+    pids: list[int] = []
+    for line in out.stdout.splitlines():
+        token = line.strip()
+        if not token.isdigit():
+            continue
+        pid = int(token)
+        try:
+            ps = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+
+        cmd = ps.stdout.strip()
+        if "opencode" in cmd and "serve" in cmd:
+            pids.append(pid)
+
+    return pids
+
+
+def _kill_opencode_serve_pids(pids: list[int]) -> None:
+    """Terminate/kill opencode serve processes by pid."""
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            continue
+
+    time.sleep(0.5)
+
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            continue
+
+
 def start_hub_server() -> subprocess.Popen[bytes] | None:
     """Launch OpenCode hub server in headless mode.
 
@@ -1247,7 +1333,10 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
     global HUB_SERVER_PROCESS
 
     if is_hub_server_running():
-        log.info(f"Hub server already running on port {OPENCODE_PORT}")
+        log.info(
+            f"Hub server already running on port {OPENCODE_PORT} "
+            f"(model controlled by that server instance, desired={HUB_SERVER_MODEL})"
+        )
         return None
 
     log.info(f"Starting OpenCode hub server on port {OPENCODE_PORT}...")
@@ -1262,13 +1351,20 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
     try:
         # Redirect stdout/stderr to log files
         # NOTE: Files intentionally not using context manager - must stay open for subprocess
-        log_dir = Path.home() / ".local/share/agent-hub-daemon"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        hub_stdout = open(log_dir / "hub-stdout.log", "a")  # noqa: SIM115
-        hub_stderr = open(log_dir / "hub-stderr.log", "a")  # noqa: SIM115
+        DAEMON_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        hub_stdout = open(DAEMON_LOG_DIR / "hub-stdout.log", "a")  # noqa: SIM115
+        hub_stderr = open(HUB_STDERR_LOG_FILE, "a")  # noqa: SIM115
 
         HUB_SERVER_PROCESS = subprocess.Popen(
-            [opencode_bin, "serve", "--port", str(OPENCODE_PORT), "--print-logs"],
+            [
+                opencode_bin,
+                "serve",
+                "--port",
+                str(OPENCODE_PORT),
+                "--model",
+                HUB_SERVER_MODEL,
+                "--print-logs",
+            ],
             stdout=hub_stdout,
             stderr=hub_stderr,
             start_new_session=True,  # Detach from terminal
@@ -1284,6 +1380,7 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
 
         log.error("Hub server failed to start within timeout")
         HUB_SERVER_PROCESS.terminate()
+        _kill_opencode_serve_pids(_find_opencode_serve_pids_on_port())
         HUB_SERVER_PROCESS = None
         return None
 
@@ -1327,6 +1424,9 @@ def stop_hub_server() -> None:
             HUB_SERVER_PID_FILE.unlink()
     except OSError:
         pass
+
+    # Final safety: kill any stray opencode serve still bound to this port.
+    _kill_opencode_serve_pids(_find_opencode_serve_pids_on_port())
 
 
 # =============================================================================
@@ -1747,6 +1847,9 @@ def start_coordinator() -> bool:
                 "Coordinator did not become ready after bootstrap "
                 f"within {COORDINATOR_READY_TIMEOUT_SECONDS}s"
             )
+            error_context = _get_recent_hub_error_context(session_id)
+            if error_context:
+                msg = f"{msg}; recent hub error context: {error_context}"
             if COORDINATOR_BOOTSTRAP_REQUIRED:
                 log.error(msg)
                 with suppress(requests.RequestException):
@@ -2884,7 +2987,10 @@ Examples:
     log.info(f"OpenCode API: {OPENCODE_URL}")
     log.info(f"Message TTL: {MESSAGE_TTL_SECONDS}s, GC interval: {GC_INTERVAL_SECONDS}s")
     if COORDINATOR_ENABLED:
-        log.info(f"Coordinator: enabled, model={COORDINATOR_MODEL}, dir={COORDINATOR_DIR}")
+        log.info(
+            f"Coordinator: enabled, model={COORDINATOR_MODEL}, dir={COORDINATOR_DIR}, "
+            f"hub_model={HUB_SERVER_MODEL}"
+        )
     else:
         log.info("Coordinator: disabled")
 
