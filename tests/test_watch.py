@@ -399,9 +399,9 @@ class TestRenderDashboard:
             for line in output_lines:
                 if line.startswith("\033") or not line.strip():
                     continue
-                assert (
-                    len(line) <= cols
-                ), f"At {cols} cols, line exceeds width ({len(line)}): {line!r}"
+                assert len(line) <= cols, (
+                    f"At {cols} cols, line exceeds width ({len(line)}): {line!r}"
+                )
 
 
 # ---------------------------------------------------------------------------
