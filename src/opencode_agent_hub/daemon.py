@@ -1591,57 +1591,7 @@ def start_coordinator() -> bool:
         AGENTS_DIR.mkdir(parents=True, exist_ok=True)
         agent_file = AGENTS_DIR / "coordinator.json"
         agent_file.write_text(json.dumps(coordinator_agent, indent=2))
-        log.info(f"Registered coordinator as agent 'coordinator'")
-
-        log.info(f"Coordinator session ready: {session_id[:8]}")
-        return True
-
-        # Verify coordinator has proper permissions
-        sessions = get_sessions_uncached()
-        coordinator_session = None
-        if sessions:
-            for s in sessions:
-                if s.get("id") == session_id:
-                    coordinator_session = s
-                    break
-
-        if coordinator_session:
-            permissions = coordinator_session.get("permission")
-
-            # Only warn if permissions is a list with explicit deny rules
-            # None or [] means inherit from global config (works correctly)
-            if isinstance(permissions, list) and permissions:
-                # Check if this looks like CLI-created restrictive permissions
-                has_deny_rules = any(
-                    isinstance(p, dict) and p.get("action") == "deny" for p in permissions
-                )
-                if has_deny_rules:
-                    log.warning(
-                        f"Coordinator session {session_id[:8]} has CLI restrictive permissions. "
-                        f"Tools may not work. Session permissions: {permissions[:3]}..."
-                    )
-
-        COORDINATOR_SESSION_ID = session_id
-        ORIENTED_SESSIONS.add(session_id)
-
-        # Register coordinator as an agent so other agents can message it
-        coordinator_agent = {
-            "id": "coordinator",
-            "sessionId": session_id,
-            "projectPath": str(COORDINATOR_DIR),
-            "role": "Agent hub coordinator - facilitates collaboration between agents",
-            "capabilities": [
-                "agent-hub_send_message",
-                "agent-hub_sync",
-                "agent-hub_get_hub_status",
-            ],
-            "collaboratesWith": [],
-            "status": "active",
-            "lastSeen": int(time.time() * 1000),
-        }
-        agents["coordinator"] = coordinator_agent
-        save_agents(agents)
-        log.info(f"Registered coordinator as agent 'coordinator'")
+        log.info("Registered coordinator as agent 'coordinator'")
 
         log.info(f"Coordinator session ready: {session_id[:8]}")
         return True
