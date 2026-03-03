@@ -3,12 +3,13 @@
 import json
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
 
 
-def test_find_coordinator_agents_md_explicit_config():
+def test_find_coordinator_agents_md_explicit_config() -> None:
     """Verify explicit config path takes highest priority."""
     from opencode_agent_hub import daemon
 
@@ -28,7 +29,7 @@ def test_find_coordinator_agents_md_explicit_config():
             daemon.COORDINATOR_AGENTS_MD = original
 
 
-def test_find_coordinator_agents_md_explicit_config_missing():
+def test_find_coordinator_agents_md_explicit_config_missing() -> None:
     """Verify warning logged and fallback when explicit config path doesn't exist."""
     from opencode_agent_hub import daemon
 
@@ -47,7 +48,7 @@ def test_find_coordinator_agents_md_explicit_config_missing():
         daemon.COORDINATOR_AGENTS_MD = original
 
 
-def test_find_coordinator_agents_md_user_config_agents_md():
+def test_find_coordinator_agents_md_user_config_agents_md() -> None:
     """Verify ~/.config/agent-hub-daemon/AGENTS.md is checked."""
     from opencode_agent_hub import daemon
 
@@ -69,7 +70,7 @@ def test_find_coordinator_agents_md_user_config_agents_md():
             daemon.CONFIG_DIR = original_dir
 
 
-def test_find_coordinator_agents_md_user_config_coordinator_md():
+def test_find_coordinator_agents_md_user_config_coordinator_md() -> None:
     """Verify ~/.config/agent-hub-daemon/COORDINATOR.md alias is checked."""
     from opencode_agent_hub import daemon
 
@@ -91,7 +92,7 @@ def test_find_coordinator_agents_md_user_config_coordinator_md():
             daemon.CONFIG_DIR = original_dir
 
 
-def test_find_coordinator_agents_md_agents_md_priority_over_coordinator_md():
+def test_find_coordinator_agents_md_agents_md_priority_over_coordinator_md() -> None:
     """Verify AGENTS.md takes priority over COORDINATOR.md alias."""
     from opencode_agent_hub import daemon
 
@@ -115,7 +116,7 @@ def test_find_coordinator_agents_md_agents_md_priority_over_coordinator_md():
             daemon.CONFIG_DIR = original_dir
 
 
-def test_find_coordinator_agents_md_none_when_no_templates():
+def test_find_coordinator_agents_md_none_when_no_templates() -> None:
     """Verify None returned when no templates exist."""
     from opencode_agent_hub import daemon
 
@@ -143,7 +144,7 @@ def test_find_coordinator_agents_md_none_when_no_templates():
             daemon.CONFIG_DIR = original_dir
 
 
-def test_setup_coordinator_directory_copies_template():
+def test_setup_coordinator_directory_copies_template() -> None:
     """Verify setup_coordinator_directory copies from found template."""
     from opencode_agent_hub import daemon
 
@@ -180,7 +181,7 @@ def test_setup_coordinator_directory_copies_template():
             daemon.COORDINATOR_DIR = original_coord_dir
 
 
-def test_setup_coordinator_directory_creates_minimal_when_no_template():
+def test_setup_coordinator_directory_creates_minimal_when_no_template() -> None:
     """Verify setup_coordinator_directory creates minimal AGENTS.md when no template."""
     from opencode_agent_hub import daemon
 
@@ -196,15 +197,15 @@ def test_setup_coordinator_directory_creates_minimal_when_no_template():
         original_config = daemon.COORDINATOR_AGENTS_MD
         original_config_dir = daemon.CONFIG_DIR
         original_coord_dir = daemon.COORDINATOR_DIR
+        original_find = daemon.find_coordinator_agents_md_template
         daemon.COORDINATOR_AGENTS_MD = None
         daemon.CONFIG_DIR = config_dir
         daemon.COORDINATOR_DIR = coord_dir
 
         try:
             # Mock system locations to not exist
-            original_find = daemon.find_coordinator_agents_md_template
 
-            def mock_find():
+            def mock_find() -> Path | None:
                 # Check user config only, skip system
                 for path in [config_dir / "AGENTS.md", config_dir / "COORDINATOR.md"]:
                     if path.exists():
@@ -229,7 +230,7 @@ def test_setup_coordinator_directory_creates_minimal_when_no_template():
             daemon.find_coordinator_agents_md_template = original_find
 
 
-def test_setup_coordinator_directory_skips_if_exists():
+def test_setup_coordinator_directory_skips_if_exists() -> None:
     """Verify setup_coordinator_directory skips if AGENTS.md already exists."""
     from opencode_agent_hub import daemon
 
@@ -266,7 +267,7 @@ def test_setup_coordinator_directory_skips_if_exists():
 # =============================================================================
 
 
-def test_parse_session_id_from_json_output_valid():
+def test_parse_session_id_from_json_output_valid() -> None:
     """Verify session ID is extracted from valid JSON output."""
     from opencode_agent_hub.daemon import _parse_session_id_from_json_output
 
@@ -283,7 +284,7 @@ def test_parse_session_id_from_json_output_valid():
     assert result == "ses_abc123def456"
 
 
-def test_parse_session_id_from_json_output_multiline():
+def test_parse_session_id_from_json_output_multiline() -> None:
     """Verify only the first line is parsed."""
     from opencode_agent_hub.daemon import _parse_session_id_from_json_output
 
@@ -295,14 +296,14 @@ def test_parse_session_id_from_json_output_multiline():
     assert result == "ses_first_line"
 
 
-def test_parse_session_id_from_json_output_none():
+def test_parse_session_id_from_json_output_none() -> None:
     """Verify None returned for None input."""
     from opencode_agent_hub.daemon import _parse_session_id_from_json_output
 
     assert _parse_session_id_from_json_output(None) is None
 
 
-def test_parse_session_id_from_json_output_empty():
+def test_parse_session_id_from_json_output_empty() -> None:
     """Verify None returned for empty bytes."""
     from opencode_agent_hub.daemon import _parse_session_id_from_json_output
 
@@ -310,14 +311,14 @@ def test_parse_session_id_from_json_output_empty():
     assert _parse_session_id_from_json_output(b"\n") is None
 
 
-def test_parse_session_id_from_json_output_invalid_json():
+def test_parse_session_id_from_json_output_invalid_json() -> None:
     """Verify None returned for non-JSON output."""
     from opencode_agent_hub.daemon import _parse_session_id_from_json_output
 
     assert _parse_session_id_from_json_output(b"not json at all") is None
 
 
-def test_parse_session_id_from_json_output_missing_field():
+def test_parse_session_id_from_json_output_missing_field() -> None:
     """Verify None returned when sessionID field is absent."""
     from opencode_agent_hub.daemon import _parse_session_id_from_json_output
 
@@ -325,7 +326,7 @@ def test_parse_session_id_from_json_output_missing_field():
     assert _parse_session_id_from_json_output(stdout) is None
 
 
-def test_parse_session_id_from_json_output_bad_prefix():
+def test_parse_session_id_from_json_output_bad_prefix() -> None:
     """Verify None returned when sessionID doesn't start with ses_."""
     from opencode_agent_hub.daemon import _parse_session_id_from_json_output
 
@@ -333,7 +334,7 @@ def test_parse_session_id_from_json_output_bad_prefix():
     assert _parse_session_id_from_json_output(stdout) is None
 
 
-def test_parse_session_id_from_json_output_non_string():
+def test_parse_session_id_from_json_output_non_string() -> None:
     """Verify None returned when sessionID is not a string."""
     from opencode_agent_hub.daemon import _parse_session_id_from_json_output
 
@@ -346,7 +347,7 @@ def test_parse_session_id_from_json_output_non_string():
 # =============================================================================
 
 
-def test_find_coordinator_session_matches_title():
+def test_find_coordinator_session_matches_title() -> None:
     """Verify find_coordinator_session matches by coordinator title."""
     from opencode_agent_hub import daemon
 
@@ -364,7 +365,7 @@ def test_find_coordinator_session_matches_title():
     assert result == "ses_coord"
 
 
-def test_find_coordinator_session_no_match():
+def test_find_coordinator_session_no_match() -> None:
     """Verify None returned when no coordinator session exists."""
     from opencode_agent_hub import daemon
 
@@ -379,7 +380,7 @@ def test_find_coordinator_session_no_match():
     assert result is None
 
 
-def test_find_coordinator_session_empty_sessions():
+def test_find_coordinator_session_empty_sessions() -> None:
     """Verify None returned when hub has no sessions."""
     from opencode_agent_hub import daemon
 
@@ -389,7 +390,7 @@ def test_find_coordinator_session_empty_sessions():
     assert result is None
 
 
-def test_find_coordinator_session_ignores_similar_titles():
+def test_find_coordinator_session_ignores_similar_titles() -> None:
     """Verify only exact title match works."""
     from opencode_agent_hub import daemon
 
@@ -410,7 +411,7 @@ def test_find_coordinator_session_ignores_similar_titles():
 # =============================================================================
 
 
-def test_orient_session_skips_coordinator_by_session_id():
+def test_orient_session_skips_coordinator_by_session_id() -> None:
     """Verify orient_session skips injection for coordinator session."""
     from opencode_agent_hub import daemon
 
@@ -421,8 +422,8 @@ def test_orient_session_skips_coordinator_by_session_id():
         daemon.COORDINATOR_SESSION_ID = "ses_coordinator_123"
         daemon.ORIENTED_SESSIONS = set()
 
-        agent = {"id": "coordinator", "projectPath": "/some/path"}
-        all_agents = {"coordinator": agent}
+        agent: dict[str, Any] = {"id": "coordinator", "projectPath": "/some/path"}
+        all_agents: dict[str, dict[str, Any]] = {"coordinator": agent}
 
         # Mock save to avoid file I/O
         with (
@@ -439,7 +440,7 @@ def test_orient_session_skips_coordinator_by_session_id():
         daemon.ORIENTED_SESSIONS = original_oriented
 
 
-def test_orient_session_does_not_skip_non_coordinator():
+def test_orient_session_does_not_skip_non_coordinator() -> None:
     """Verify orient_session injects orientation for non-coordinator sessions."""
     from opencode_agent_hub import daemon
 
@@ -468,7 +469,7 @@ def test_orient_session_does_not_skip_non_coordinator():
         daemon.ORIENTED_SESSIONS = original_oriented
 
 
-def test_orient_session_no_coordinator_id_does_not_skip():
+def test_orient_session_no_coordinator_id_does_not_skip() -> None:
     """Verify orient_session doesn't skip when COORDINATOR_SESSION_ID is None."""
     from opencode_agent_hub import daemon
 
@@ -501,7 +502,7 @@ def test_orient_session_no_coordinator_id_does_not_skip():
 # =============================================================================
 
 
-def test_start_coordinator_captures_session_id_from_json():
+def test_start_coordinator_captures_session_id_from_json() -> None:
     """Verify start_coordinator extracts session ID from JSON output."""
     from opencode_agent_hub import daemon
 
@@ -553,7 +554,7 @@ def test_start_coordinator_captures_session_id_from_json():
         daemon.ORIENTED_SESSIONS = original_oriented
 
 
-def test_start_coordinator_fallback_to_title_search():
+def test_start_coordinator_fallback_to_title_search() -> None:
     """Verify start_coordinator falls back to title search when JSON parse fails."""
     from opencode_agent_hub import daemon
 
@@ -597,7 +598,7 @@ def test_start_coordinator_fallback_to_title_search():
         daemon.ORIENTED_SESSIONS = original_oriented
 
 
-def test_start_coordinator_reuses_existing_session():
+def test_start_coordinator_reuses_existing_session() -> None:
     """Verify start_coordinator kills existing and creates new session."""
     from opencode_agent_hub import daemon
 
@@ -641,7 +642,7 @@ def test_start_coordinator_reuses_existing_session():
         daemon.ORIENTED_SESSIONS = original_oriented
 
 
-def test_start_coordinator_disabled():
+def test_start_coordinator_disabled() -> None:
     """Verify start_coordinator returns False when disabled."""
     from opencode_agent_hub import daemon
 
@@ -656,7 +657,7 @@ def test_start_coordinator_disabled():
         daemon.COORDINATOR_ENABLED = original_enabled
 
 
-def test_start_coordinator_nonzero_exit():
+def test_start_coordinator_nonzero_exit() -> None:
     """Verify start_coordinator returns False on non-zero exit code."""
     from opencode_agent_hub import daemon
 
@@ -691,7 +692,7 @@ def test_start_coordinator_nonzero_exit():
 # =============================================================================
 
 
-def test_poll_active_sessions_skips_coordinator():
+def test_poll_active_sessions_skips_coordinator() -> None:
     """Verify poll_active_sessions skips coordinator session before creating agent."""
     from opencode_agent_hub import daemon
 
@@ -719,7 +720,7 @@ def test_poll_active_sessions_skips_coordinator():
             },
         ]
 
-        agents = {}
+        agents: dict[str, dict[str, Any]] = {}
 
         with (
             mock.patch.object(daemon, "get_sessions", return_value=sessions),
@@ -744,7 +745,7 @@ def test_poll_active_sessions_skips_coordinator():
         daemon.DAEMON_START_TIME_MS = original_start_time
 
 
-def test_poll_active_sessions_no_skip_when_coordinator_unset():
+def test_poll_active_sessions_no_skip_when_coordinator_unset() -> None:
     """Verify poll_active_sessions processes all sessions when no coordinator is set."""
     from opencode_agent_hub import daemon
 
@@ -766,7 +767,7 @@ def test_poll_active_sessions_no_skip_when_coordinator_unset():
             },
         ]
 
-        agents = {}
+        agents: dict[str, dict[str, Any]] = {}
 
         with (
             mock.patch.object(daemon, "get_sessions", return_value=sessions),
@@ -783,7 +784,7 @@ def test_poll_active_sessions_no_skip_when_coordinator_unset():
         daemon.DAEMON_START_TIME_MS = original_start_time
 
 
-def test_process_session_file_skips_coordinator():
+def test_process_session_file_skips_coordinator() -> None:
     """Verify process_session_file skips coordinator session before creating agent."""
     from opencode_agent_hub import daemon
 
@@ -803,7 +804,7 @@ def test_process_session_file_skips_coordinator():
             "time": {"created": 2000},
         }
 
-        agents = {}
+        agents: dict[str, dict[str, Any]] = {}
 
         with (
             mock.patch.object(daemon, "load_opencode_session", return_value=coordinator_session),
@@ -822,7 +823,7 @@ def test_process_session_file_skips_coordinator():
         daemon.DAEMON_START_TIME_MS = original_start_time
 
 
-def test_process_session_file_processes_non_coordinator():
+def test_process_session_file_processes_non_coordinator() -> None:
     """Verify process_session_file processes normal sessions normally."""
     from opencode_agent_hub import daemon
 
@@ -842,7 +843,7 @@ def test_process_session_file_processes_non_coordinator():
             "time": {"created": 2000},
         }
 
-        agents = {}
+        agents: dict[str, dict[str, Any]] = {}
 
         with (
             mock.patch.object(daemon, "load_opencode_session", return_value=worker_session),
@@ -861,7 +862,7 @@ def test_process_session_file_processes_non_coordinator():
         daemon.DAEMON_START_TIME_MS = original_start_time
 
 
-def test_no_phantom_agent_for_coordinator_end_to_end():
+def test_no_phantom_agent_for_coordinator_end_to_end() -> None:
     """End-to-end: coordinator session appears in poll, no phantom agent created.
 
     Simulates the exact race condition scenario:
@@ -899,7 +900,7 @@ def test_no_phantom_agent_for_coordinator_end_to_end():
             },
         ]
 
-        agents = {}
+        agents: dict[str, dict[str, Any]] = {}
 
         with (
             mock.patch.object(daemon, "get_sessions", return_value=sessions),
@@ -928,7 +929,7 @@ def test_no_phantom_agent_for_coordinator_end_to_end():
         daemon.SESSION_AGENTS = original_session_agents
 
 
-def test_session_has_blocking_permissions_with_deny_question():
+def test_session_has_blocking_permissions_with_deny_question() -> None:
     """Verify session with question:deny permission is detected as blocking."""
     from opencode_agent_hub import daemon
 
@@ -943,7 +944,7 @@ def test_session_has_blocking_permissions_with_deny_question():
     assert daemon.session_has_blocking_permissions(session) is True
 
 
-def test_session_has_blocking_permissions_without_question_deny():
+def test_session_has_blocking_permissions_without_question_deny() -> None:
     """Verify session without question:deny is not blocking."""
     from opencode_agent_hub import daemon
 
@@ -957,7 +958,7 @@ def test_session_has_blocking_permissions_without_question_deny():
     assert daemon.session_has_blocking_permissions(session) is False
 
 
-def test_session_has_blocking_permissions_empty_permissions():
+def test_session_has_blocking_permissions_empty_permissions() -> None:
     """Verify session with empty permissions is not blocking."""
     from opencode_agent_hub import daemon
 
@@ -965,7 +966,7 @@ def test_session_has_blocking_permissions_empty_permissions():
     assert daemon.session_has_blocking_permissions(session) is False
 
 
-def test_session_has_blocking_permissions_no_permissions_field():
+def test_session_has_blocking_permissions_no_permissions_field() -> None:
     """Verify session without permission field is not blocking."""
     from opencode_agent_hub import daemon
 
@@ -973,7 +974,7 @@ def test_session_has_blocking_permissions_no_permissions_field():
     assert daemon.session_has_blocking_permissions(session) is False
 
 
-def test_session_has_blocking_permissions_invalid_permissions_type():
+def test_session_has_blocking_permissions_invalid_permissions_type() -> None:
     """Verify session with non-list permission field is not blocking."""
     from opencode_agent_hub import daemon
 
@@ -981,7 +982,7 @@ def test_session_has_blocking_permissions_invalid_permissions_type():
     assert daemon.session_has_blocking_permissions(session) is False
 
 
-def test_find_coordinator_session_raises_on_blocking_permissions():
+def test_find_coordinator_session_raises_on_blocking_permissions() -> None:
     """Verify find_coordinator_session raises PreflightError when session has blocking permissions."""
     from opencode_agent_hub import daemon
 
@@ -1003,7 +1004,7 @@ def test_find_coordinator_session_raises_on_blocking_permissions():
     assert "ses_bloc" in str(exc_info.value)  # Session ID truncated to 8 chars
 
 
-def test_find_coordinator_session_returns_valid_session():
+def test_find_coordinator_session_returns_valid_session() -> None:
     """Verify find_coordinator_session returns ID when session has no blocking permissions."""
     from opencode_agent_hub import daemon
 
@@ -1020,7 +1021,7 @@ def test_find_coordinator_session_returns_valid_session():
         assert result == "ses_valid_coord"
 
 
-def test_setup_coordinator_directory_copies_opencode_json_template():
+def test_setup_coordinator_directory_copies_opencode_json_template() -> None:
     """Verify setup_coordinator_directory copies opencode.json from template."""
     from opencode_agent_hub import daemon
 
@@ -1055,7 +1056,7 @@ def test_setup_coordinator_directory_copies_opencode_json_template():
             daemon.COORDINATOR_DIR = original_dir
 
 
-def test_setup_coordinator_directory_fails_without_template():
+def test_setup_coordinator_directory_fails_without_template() -> None:
     """Verify setup_coordinator_directory returns False when no opencode.json template found."""
     from opencode_agent_hub import daemon
 
@@ -1073,7 +1074,7 @@ def test_setup_coordinator_directory_fails_without_template():
             daemon.COORDINATOR_DIR = original_dir
 
 
-def test_setup_coordinator_directory_overwrites_existing_opencode_json():
+def test_setup_coordinator_directory_overwrites_existing_opencode_json() -> None:
     """Verify setup_coordinator_directory always overwrites opencode.json with template."""
     from opencode_agent_hub import daemon
 

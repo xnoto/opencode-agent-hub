@@ -4,14 +4,15 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 
-def test_get_config_value_env_precedence():
+def test_get_config_value_env_precedence() -> None:
     """Verify environment variables take precedence over config file."""
     from opencode_agent_hub.daemon import _get_config_value
 
-    config = {"opencode_port": 5000}
+    config: dict[str, Any] = {"opencode_port": 5000}
 
     # Env var should override config
     with mock.patch.dict(os.environ, {"OPENCODE_PORT": "6000"}):
@@ -19,11 +20,11 @@ def test_get_config_value_env_precedence():
         assert value == 6000
 
 
-def test_get_config_value_config_file():
+def test_get_config_value_config_file() -> None:
     """Verify config file values are used when env var not set."""
     from opencode_agent_hub.daemon import _get_config_value
 
-    config = {"opencode_port": 5000}
+    config: dict[str, Any] = {"opencode_port": 5000}
 
     # Clear env var to ensure config file is used
     with mock.patch.dict(os.environ, {}, clear=True):
@@ -33,11 +34,11 @@ def test_get_config_value_config_file():
         assert value == 5000
 
 
-def test_get_config_value_default():
+def test_get_config_value_default() -> None:
     """Verify default is used when neither env var nor config file has value."""
     from opencode_agent_hub.daemon import _get_config_value
 
-    config = {}
+    config: dict[str, Any] = {}
 
     with mock.patch.dict(os.environ, {}, clear=True):
         os.environ.pop("OPENCODE_PORT", None)
@@ -45,11 +46,11 @@ def test_get_config_value_default():
         assert value == 4096
 
 
-def test_get_config_value_nested_path():
+def test_get_config_value_nested_path() -> None:
     """Verify nested config paths work correctly."""
     from opencode_agent_hub.daemon import _get_config_value
 
-    config = {
+    config: dict[str, Any] = {
         "rate_limit": {
             "enabled": True,
             "max_messages": 20,
@@ -71,7 +72,7 @@ def test_get_config_value_nested_path():
         assert max_msgs == 20
 
 
-def test_get_config_value_bool_coercion():
+def test_get_config_value_bool_coercion() -> None:
     """Verify boolean string coercion works."""
     from opencode_agent_hub.daemon import _get_config_value
 
@@ -87,7 +88,7 @@ def test_get_config_value_bool_coercion():
             assert value is False, f"Failed for '{false_val}'"
 
 
-def test_get_config_value_int_coercion():
+def test_get_config_value_int_coercion() -> None:
     """Verify integer coercion works for string values."""
     from opencode_agent_hub.daemon import _get_config_value
 
@@ -98,7 +99,7 @@ def test_get_config_value_int_coercion():
         assert isinstance(value, int)
 
     # From config file (string)
-    config = {"test": "99"}
+    config: dict[str, Any] = {"test": "99"}
     with mock.patch.dict(os.environ, {}, clear=True):
         os.environ.pop("TEST_INT", None)
         value = _get_config_value("TEST_INT", ["test"], 0, config, int)
@@ -112,11 +113,11 @@ def test_get_config_value_int_coercion():
         assert value == 77
 
 
-def test_get_config_value_missing_nested_key():
+def test_get_config_value_missing_nested_key() -> None:
     """Verify missing nested keys return default."""
     from opencode_agent_hub.daemon import _get_config_value
 
-    config = {"rate_limit": {}}  # Missing 'enabled' key
+    config: dict[str, Any] = {"rate_limit": {}}  # Missing 'enabled' key
 
     with mock.patch.dict(os.environ, {}, clear=True):
         os.environ.pop("AGENT_HUB_RATE_LIMIT", None)
@@ -126,7 +127,7 @@ def test_get_config_value_missing_nested_key():
         assert value is False
 
 
-def test_load_config_file_not_exists():
+def test_load_config_file_not_exists() -> None:
     """Verify _load_config_file returns empty dict when file doesn't exist."""
 
     # Mock CONFIG_FILE to a non-existent path
@@ -143,7 +144,7 @@ def test_load_config_file_not_exists():
         assert result == {}
 
 
-def test_load_config_file_valid():
+def test_load_config_file_valid() -> None:
     """Verify _load_config_file loads valid JSON."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump({"opencode_port": 5000, "log_level": "DEBUG"}, f)
@@ -162,7 +163,7 @@ def test_load_config_file_valid():
     os.unlink(f.name)
 
 
-def test_load_config_file_invalid_json():
+def test_load_config_file_invalid_json() -> None:
     """Verify _load_config_file returns empty dict for invalid JSON."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write("not valid json {{{")

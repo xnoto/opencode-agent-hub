@@ -2,6 +2,7 @@
 
 import json
 import os
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -24,12 +25,12 @@ from opencode_agent_hub.watch import (
 # ---------------------------------------------------------------------------
 
 
-def _make_terminal_size(cols: int, lines: int = 24):
+def _make_terminal_size(cols: int, lines: int = 24) -> os.terminal_size:
     """Return an os.terminal_size for mocking."""
     return os.terminal_size((cols, lines))
 
 
-def _capture_print(func, *args):
+def _capture_print(func: Any, *args: Any) -> str:
     """Call func(*args) and capture all printed output as a string."""
     output = []
     with mock.patch(
@@ -48,28 +49,28 @@ def _capture_print(func, *args):
 class TestGetTerminalWidth:
     """Verify terminal width detection with VT100/POSIX minimum floor."""
 
-    def test_returns_actual_width_when_above_minimum(self):
+    def test_returns_actual_width_when_above_minimum(self) -> None:
         with mock.patch("os.get_terminal_size", return_value=_make_terminal_size(120)):
             assert get_terminal_width() == 120
 
-    def test_clamps_to_minimum_when_below(self):
+    def test_clamps_to_minimum_when_below(self) -> None:
         with mock.patch("os.get_terminal_size", return_value=_make_terminal_size(40)):
             assert get_terminal_width() == MIN_COLS
 
-    def test_exact_minimum_is_accepted(self):
+    def test_exact_minimum_is_accepted(self) -> None:
         with mock.patch("os.get_terminal_size", return_value=_make_terminal_size(80)):
             assert get_terminal_width() == 80
 
-    def test_fallback_on_oserror(self):
+    def test_fallback_on_oserror(self) -> None:
         """Non-TTY (piped stdout) should fall back to MIN_COLS."""
         with mock.patch("os.get_terminal_size", side_effect=OSError):
             assert get_terminal_width() == MIN_COLS
 
-    def test_very_wide_terminal(self):
+    def test_very_wide_terminal(self) -> None:
         with mock.patch("os.get_terminal_size", return_value=_make_terminal_size(300)):
             assert get_terminal_width() == 300
 
-    def test_minimum_constants(self):
+    def test_minimum_constants(self) -> None:
         """VT100/POSIX defaults are 80x24."""
         assert MIN_COLS == 80
         assert MIN_LINES == 24
@@ -84,7 +85,7 @@ class TestSeparatorsAndHeader:
     """Verify separators and title scale to terminal width."""
 
     @pytest.mark.parametrize("width", [80, 100, 120, 200])
-    def test_header_separators_match_width(self, width):
+    def test_header_separators_match_width(self, width: int) -> None:
         output = _capture_print(print_header, width)
         lines = output.split("\n")
         # First line: heavy separator
@@ -96,7 +97,7 @@ class TestSeparatorsAndHeader:
         assert lines[2] == "═" * width
 
     @pytest.mark.parametrize("width", [80, 100, 120, 200])
-    def test_header_title_is_centered(self, width):
+    def test_header_title_is_centered(self, width: int) -> None:
         output = _capture_print(print_header, width)
         title_line = output.split("\n")[1]
         stripped = title_line.strip()
@@ -115,14 +116,14 @@ class TestSeparatorsAndHeader:
 class TestAgentColumns:
     """Verify agent row column widths scale proportionally."""
 
-    def _setup_agents_dir(self, tmp_path, agents):
+    def _setup_agents_dir(self, tmp_path: Any, agents: list[dict[str, Any]]) -> Any:
         agents_dir = tmp_path / "agents"
         agents_dir.mkdir()
         for i, agent_data in enumerate(agents):
             (agents_dir / f"agent{i}.json").write_text(json.dumps(agent_data))
         return agents_dir
 
-    def _sample_agent(self, id_len=20, role_len=40):
+    def _sample_agent(self, id_len: int = 20, role_len: int = 40) -> dict[str, Any]:
         return {
             "id": "A" * id_len,
             "role": "R" * role_len,
@@ -131,7 +132,7 @@ class TestAgentColumns:
         }
 
     @pytest.mark.parametrize("width", [80, 120, 200])
-    def test_agent_row_does_not_exceed_width(self, tmp_path, width):
+    def test_agent_row_does_not_exceed_width(self, tmp_path: Any, width: int) -> None:
         agents_dir = self._setup_agents_dir(tmp_path, [self._sample_agent()])
         with mock.patch("opencode_agent_hub.watch.AGENTS_DIR", agents_dir):
             output = _capture_print(print_agents, width)
@@ -146,7 +147,7 @@ class TestAgentColumns:
             if line.strip() and line.strip() != "":
                 assert len(line) <= width, f"Line exceeds width {width}: ({len(line)}) {line!r}"
 
-    def test_narrow_terminal_truncates_fields(self, tmp_path):
+    def test_narrow_terminal_truncates_fields(self, tmp_path: Any) -> None:
         """At minimum width (80), long fields get truncated."""
         agent = self._sample_agent(id_len=50, role_len=80)
         agents_dir = self._setup_agents_dir(tmp_path, [agent])
@@ -158,7 +159,7 @@ class TestAgentColumns:
         a_count = data_line.count("A")
         assert a_count < 50
 
-    def test_wide_terminal_shows_more(self, tmp_path):
+    def test_wide_terminal_shows_more(self, tmp_path: Any) -> None:
         """At 200 cols, more of the agent ID and role should be visible."""
         agent = self._sample_agent(id_len=50, role_len=80)
         agents_dir = self._setup_agents_dir(tmp_path, [agent])
@@ -183,14 +184,14 @@ class TestAgentColumns:
 class TestMessageColumns:
     """Verify message row column widths scale proportionally."""
 
-    def _setup_messages_dir(self, tmp_path, messages):
+    def _setup_messages_dir(self, tmp_path: Any, messages: list[dict[str, Any]]) -> Any:
         msgs_dir = tmp_path / "messages"
         msgs_dir.mkdir()
         for i, msg_data in enumerate(messages):
             (msgs_dir / f"msg{i}.json").write_text(json.dumps(msg_data))
         return msgs_dir
 
-    def _sample_message(self, content_len=100):
+    def _sample_message(self, content_len: int = 100) -> dict[str, Any]:
         return {
             "from": "agent-alpha",
             "to": "agent-beta",
@@ -201,7 +202,7 @@ class TestMessageColumns:
         }
 
     @pytest.mark.parametrize("width", [80, 120, 200])
-    def test_message_row_does_not_exceed_width(self, tmp_path, width):
+    def test_message_row_does_not_exceed_width(self, tmp_path: Any, width: int) -> None:
         msgs_dir = self._setup_messages_dir(tmp_path, [self._sample_message()])
         with mock.patch("opencode_agent_hub.watch.MESSAGES_DIR", msgs_dir):
             output = _capture_print(print_messages, width)
@@ -213,7 +214,7 @@ class TestMessageColumns:
             if line.strip() and "X" in line:
                 assert len(line) <= width, f"Line exceeds width {width}: ({len(line)}) {line!r}"
 
-    def test_content_expands_on_wide_terminal(self, tmp_path):
+    def test_content_expands_on_wide_terminal(self, tmp_path: Any) -> None:
         """Content field should show more text on wider terminals."""
         msg = self._sample_message(content_len=150)
         msgs_dir = self._setup_messages_dir(tmp_path, [msg])
@@ -227,7 +228,7 @@ class TestMessageColumns:
         wide_x = max((row.count("X") for row in wide.split("\n")), default=0)
         assert wide_x > narrow_x
 
-    def test_urgent_priority_marker_preserved(self, tmp_path):
+    def test_urgent_priority_marker_preserved(self, tmp_path: Any) -> None:
         msg = self._sample_message()
         msg["priority"] = "urgent"
         msg["read"] = False
@@ -248,14 +249,14 @@ class TestMessageColumns:
 class TestThreadColumns:
     """Verify thread row column widths scale proportionally."""
 
-    def _setup_threads_dir(self, tmp_path, threads):
+    def _setup_threads_dir(self, tmp_path: Any, threads: list[dict[str, Any]]) -> Any:
         threads_dir = tmp_path / "threads"
         threads_dir.mkdir()
         for i, t_data in enumerate(threads):
             (threads_dir / f"thread{i}.json").write_text(json.dumps(t_data))
         return threads_dir
 
-    def _sample_thread(self, participants=None):
+    def _sample_thread(self, participants: list[str] | None = None) -> dict[str, Any]:
         return {
             "id": "thread-abcdef12345",
             "createdBy": "coordinator",
@@ -265,7 +266,7 @@ class TestThreadColumns:
         }
 
     @pytest.mark.parametrize("width", [80, 120, 200])
-    def test_thread_row_does_not_exceed_width(self, tmp_path, width):
+    def test_thread_row_does_not_exceed_width(self, tmp_path: Any, width: int) -> None:
         threads_dir = self._setup_threads_dir(tmp_path, [self._sample_thread()])
         with mock.patch("opencode_agent_hub.watch.THREADS_DIR", threads_dir):
             output = _capture_print(print_threads, width)
@@ -277,7 +278,7 @@ class TestThreadColumns:
             if line.strip() and "thread" in line:
                 assert len(line) <= width, f"Line exceeds width {width}: ({len(line)}) {line!r}"
 
-    def test_participants_expand_on_wide_terminal(self, tmp_path):
+    def test_participants_expand_on_wide_terminal(self, tmp_path: Any) -> None:
         """More participant names should be visible on wider terminals."""
         many_participants = [f"agent-{i:03d}" for i in range(20)]
         thread = self._sample_thread(participants=many_participants)
@@ -302,7 +303,7 @@ class TestRenderDashboard:
     """Integration tests for full dashboard render at various widths."""
 
     @pytest.mark.parametrize("cols", [80, 100, 140, 200])
-    def test_full_render_at_width(self, tmp_path, cols):
+    def test_full_render_at_width(self, tmp_path: Any, cols: int) -> None:
         """Render the full dashboard and verify no line exceeds terminal width."""
         # Set up empty dirs so sections render their empty-state messages
         agents_dir = tmp_path / "agents"
@@ -312,9 +313,9 @@ class TestRenderDashboard:
         messages_dir.mkdir()
         threads_dir.mkdir()
 
-        output_lines = []
+        output_lines: list[str] = []
 
-        def capture_print(*args, **kwargs):
+        def capture_print(*args: Any, **kwargs: Any) -> None:
             text = " ".join(str(a) for a in args)
             output_lines.append(text)
 
@@ -334,7 +335,7 @@ class TestRenderDashboard:
                 continue
             assert len(line) <= cols, f"Line exceeds {cols} cols ({len(line)}): {line!r}"
 
-    def test_full_render_with_data(self, tmp_path):
+    def test_full_render_with_data(self, tmp_path: Any) -> None:
         """Render dashboard with actual agent/message/thread data."""
         agents_dir = tmp_path / "agents"
         messages_dir = tmp_path / "messages"
@@ -381,7 +382,7 @@ class TestRenderDashboard:
         for cols in [80, 120, 200]:
             output_lines: list[str] = []
 
-            def capture_print(*args, _out=output_lines, **kwargs):
+            def capture_print(*args: Any, _out: list[str] = output_lines, **kwargs: Any) -> None:
                 text = " ".join(str(a) for a in args)
                 _out.append(text)
 
@@ -411,7 +412,7 @@ class TestRenderDashboard:
 class TestSigwinch:
     """Verify SIGWINCH support is wired correctly."""
 
-    def test_sigwinch_is_available_on_unix(self):
+    def test_sigwinch_is_available_on_unix(self) -> None:
         """SIGWINCH should exist on macOS/Linux."""
         assert hasattr(os, "terminal_size")
         # signal.SIGWINCH is POSIX; should be present on darwin/linux
@@ -449,7 +450,7 @@ agent_hub_coordinator_messages_total 42
 class TestParsePromFile:
     """Verify Prometheus text format parsing."""
 
-    def test_parses_all_metrics(self, tmp_path):
+    def test_parses_all_metrics(self, tmp_path: Any) -> None:
         prom_file = tmp_path / "metrics.prom"
         prom_file.write_text(_SAMPLE_PROM)
         metrics = parse_prom_file(prom_file)
@@ -461,18 +462,18 @@ class TestParsePromFile:
         assert abs(metrics["agent_hub_coordinator_estimated_cost_usd"] - 0.0523) < 1e-9
         assert metrics["agent_hub_coordinator_messages_total"] == 42.0
 
-    def test_returns_empty_for_missing_file(self, tmp_path):
+    def test_returns_empty_for_missing_file(self, tmp_path: Any) -> None:
         result = parse_prom_file(tmp_path / "nonexistent.prom")
         assert result == {}
 
-    def test_skips_comment_and_blank_lines(self, tmp_path):
+    def test_skips_comment_and_blank_lines(self, tmp_path: Any) -> None:
         content = "# HELP foo bar\n# TYPE foo counter\n\nfoo 99\n\n"
         prom_file = tmp_path / "metrics.prom"
         prom_file.write_text(content)
         metrics = parse_prom_file(prom_file)
         assert metrics == {"foo": 99.0}
 
-    def test_skips_malformed_value(self, tmp_path):
+    def test_skips_malformed_value(self, tmp_path: Any) -> None:
         content = "good_metric 42\nbad_metric not_a_number\n"
         prom_file = tmp_path / "metrics.prom"
         prom_file.write_text(content)
@@ -480,12 +481,12 @@ class TestParsePromFile:
         assert metrics == {"good_metric": 42.0}
         assert "bad_metric" not in metrics
 
-    def test_handles_empty_file(self, tmp_path):
+    def test_handles_empty_file(self, tmp_path: Any) -> None:
         prom_file = tmp_path / "metrics.prom"
         prom_file.write_text("")
         assert parse_prom_file(prom_file) == {}
 
-    def test_handles_permission_error(self, tmp_path):
+    def test_handles_permission_error(self, tmp_path: Any) -> None:
         prom_file = tmp_path / "metrics.prom"
         prom_file.write_text("foo 1")
         prom_file.chmod(0o000)
@@ -494,7 +495,7 @@ class TestParsePromFile:
         finally:
             prom_file.chmod(0o644)
 
-    def test_parses_float_values(self, tmp_path):
+    def test_parses_float_values(self, tmp_path: Any) -> None:
         content = "gauge_a 3.14159\ngauge_b 0.0\ngauge_c 1e6\n"
         prom_file = tmp_path / "metrics.prom"
         prom_file.write_text(content)
@@ -512,12 +513,12 @@ class TestParsePromFile:
 class TestCostPanel:
     """Verify cost/token dashboard panel rendering."""
 
-    def _write_metrics(self, tmp_path):
+    def _write_metrics(self, tmp_path: Any) -> Any:
         prom_file = tmp_path / "metrics.prom"
         prom_file.write_text(_SAMPLE_PROM)
         return prom_file
 
-    def test_displays_cost_and_messages(self, tmp_path):
+    def test_displays_cost_and_messages(self, tmp_path: Any) -> None:
         prom_file = self._write_metrics(tmp_path)
         with mock.patch("opencode_agent_hub.watch.METRICS_FILE", prom_file):
             output = _capture_print(print_cost_panel, 120)
@@ -525,7 +526,7 @@ class TestCostPanel:
         assert "$0.0523" in output
         assert "Messages: 42" in output
 
-    def test_displays_token_breakdown(self, tmp_path):
+    def test_displays_token_breakdown(self, tmp_path: Any) -> None:
         prom_file = self._write_metrics(tmp_path)
         with mock.patch("opencode_agent_hub.watch.METRICS_FILE", prom_file):
             output = _capture_print(print_cost_panel, 120)
@@ -535,14 +536,14 @@ class TestCostPanel:
         assert "Cache R: 4,000" in output
         assert "Cache W: 500" in output
 
-    def test_empty_state_when_no_file(self, tmp_path):
+    def test_empty_state_when_no_file(self, tmp_path: Any) -> None:
         missing = tmp_path / "nonexistent.prom"
         with mock.patch("opencode_agent_hub.watch.METRICS_FILE", missing):
             output = _capture_print(print_cost_panel, 80)
 
         assert "(no metrics available)" in output
 
-    def test_separator_matches_width(self, tmp_path):
+    def test_separator_matches_width(self, tmp_path: Any) -> None:
         prom_file = self._write_metrics(tmp_path)
         for width in [80, 120, 200]:
             with mock.patch("opencode_agent_hub.watch.METRICS_FILE", prom_file):
@@ -552,7 +553,7 @@ class TestCostPanel:
             assert separator == "─" * width, f"Separator mismatch at width {width}"
 
     @pytest.mark.parametrize("width", [80, 120, 200])
-    def test_no_line_exceeds_width(self, tmp_path, width):
+    def test_no_line_exceeds_width(self, tmp_path: Any, width: int) -> None:
         prom_file = self._write_metrics(tmp_path)
         with mock.patch("opencode_agent_hub.watch.METRICS_FILE", prom_file):
             output = _capture_print(print_cost_panel, width)
@@ -561,7 +562,7 @@ class TestCostPanel:
             if line.strip():
                 assert len(line) <= width, f"Line exceeds {width} cols ({len(line)}): {line!r}"
 
-    def test_partial_metrics(self, tmp_path):
+    def test_partial_metrics(self, tmp_path: Any) -> None:
         """Panel should render gracefully with only some metrics present."""
         content = (
             "agent_hub_coordinator_estimated_cost_usd 1.23\n"

@@ -2,9 +2,10 @@
 
 import os
 import time
+from typing import Any
 
 
-def test_rate_limit_disabled_by_default():
+def test_rate_limit_disabled_by_default() -> None:
     """Verify rate limiting is disabled when env var not set."""
     # Clear any existing env var
     os.environ.pop("AGENT_HUB_RATE_LIMIT", None)
@@ -19,7 +20,7 @@ def test_rate_limit_disabled_by_default():
     assert daemon.RATE_LIMIT_ENABLED is False
 
 
-def test_rate_limit_check_when_disabled():
+def test_rate_limit_check_when_disabled() -> None:
     """Verify check_rate_limit returns True when disabled."""
     os.environ.pop("AGENT_HUB_RATE_LIMIT", None)
 
@@ -34,7 +35,7 @@ def test_rate_limit_check_when_disabled():
     assert reason is None
 
 
-def test_rate_limit_enabled():
+def test_rate_limit_enabled() -> None:
     """Verify rate limiting can be enabled."""
     os.environ["AGENT_HUB_RATE_LIMIT"] = "true"
     os.environ["AGENT_HUB_RATE_LIMIT_MAX"] = "2"
@@ -66,13 +67,13 @@ def test_rate_limit_enabled():
     # Third message should be rate limited
     allowed, reason = daemon.check_rate_limit("test-agent")
     assert allowed is False
-    assert "Rate limit" in reason
+    assert reason and "Rate limit" in reason
 
     # Cleanup
     os.environ.pop("AGENT_HUB_RATE_LIMIT", None)
 
 
-def test_rate_limit_cooldown():
+def test_rate_limit_cooldown() -> None:
     """Verify cooldown period is enforced."""
     os.environ["AGENT_HUB_RATE_LIMIT"] = "true"
     os.environ["AGENT_HUB_RATE_LIMIT_MAX"] = "100"
@@ -96,7 +97,7 @@ def test_rate_limit_cooldown():
     # Immediate second message should be blocked by cooldown
     allowed, reason = daemon.check_rate_limit("cooldown-agent")
     assert allowed is False
-    assert "Cooldown" in reason
+    assert reason and "Cooldown" in reason
 
     # Wait for cooldown
     time.sleep(1.1)
@@ -109,12 +110,12 @@ def test_rate_limit_cooldown():
     os.environ.pop("AGENT_HUB_RATE_LIMIT", None)
 
 
-def test_format_orientation_includes_essentials():
+def test_format_orientation_includes_essentials() -> None:
     """Verify orientation message includes essential info."""
     from opencode_agent_hub import daemon
 
-    agent = {"id": "test-agent", "projectPath": "/test/path"}
-    all_agents = {
+    agent: dict[str, Any] = {"id": "test-agent", "projectPath": "/test/path"}
+    all_agents: dict[str, dict[str, Any]] = {
         "test-agent": agent,
         "other-agent": {
             "id": "other-agent",
@@ -131,12 +132,12 @@ def test_format_orientation_includes_essentials():
     assert "agent-hub" in orientation.lower()  # Tool reference
 
 
-def test_format_orientation_excludes_inactive_agents():
+def test_format_orientation_excludes_inactive_agents() -> None:
     """Verify orientation excludes stale agents."""
     from opencode_agent_hub import daemon
 
-    agent = {"id": "test-agent", "projectPath": "/test/path"}
-    all_agents = {
+    agent: dict[str, Any] = {"id": "test-agent", "projectPath": "/test/path"}
+    all_agents: dict[str, dict[str, Any]] = {
         "test-agent": agent,
         "stale-agent": {
             "id": "stale-agent",
