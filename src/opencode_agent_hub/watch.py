@@ -14,8 +14,9 @@ import sys
 import time
 from pathlib import Path
 from threading import Event, Lock
+from typing import Any, cast
 
-from watchdog.events import FileSystemEventHandler
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 HUB_DIR = Path.home() / ".agent-hub"
@@ -45,15 +46,16 @@ def get_terminal_width() -> int:
 class HubEventHandler(FileSystemEventHandler):
     """Trigger refresh on any filesystem change."""
 
-    def on_any_event(self, event):
+    def on_any_event(self, event: FileSystemEvent) -> None:
         if event.event_type not in ["created", "deleted", "modified", "moved"]:
             return
 
-        if event.src_path.endswith((".json", ".prom")):
+        src_path = cast(str, event.src_path)
+        if src_path.endswith((".json", ".prom")):
             refresh_event.set()
 
 
-def clear_screen():
+def clear_screen() -> None:
     print("\033[2J\033[H", end="")
 
 
@@ -73,11 +75,11 @@ def relative_time(timestamp_ms: int) -> str:
         return f"{ago // 86400}d ago"
 
 
-def load_json(path: Path) -> dict | None:
+def load_json(path: Path) -> dict[str, Any] | None:
     """Safely load JSON file."""
     try:
         with open(path) as f:
-            return json.load(f)
+            return cast(dict[str, Any], json.load(f))
     except (json.JSONDecodeError, FileNotFoundError, PermissionError):
         return None
 
@@ -348,7 +350,7 @@ def render_dashboard() -> None:
         sys.stdout.flush()
 
 
-def main():
+def main() -> None:
     # Ensure directories exist
     for d in [MESSAGES_DIR, AGENTS_DIR, THREADS_DIR]:
         d.mkdir(parents=True, exist_ok=True)

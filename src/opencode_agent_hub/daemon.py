@@ -69,7 +69,7 @@ from dataclasses import dataclass
 # For accessing package data files reliably across install methods (pip, deb, rpm, aur)
 from importlib.resources import files
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import requests
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
@@ -94,12 +94,12 @@ CONFIG_DIR = Path.home() / ".config" / "agent-hub-daemon"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 
-def _load_config_file() -> dict:
+def _load_config_file() -> dict[str, Any]:
     """Load configuration from JSON file if it exists."""
     if not CONFIG_FILE.exists():
         return {}
     try:
-        return json.loads(CONFIG_FILE.read_text())
+        return cast(dict[str, Any], json.loads(CONFIG_FILE.read_text()))
     except (json.JSONDecodeError, OSError):
         # Log warning later after logging is set up
         return {}
@@ -109,9 +109,9 @@ def _get_config_value(
     env_var: str,
     config_path: list[str],
     default: str | int | bool,
-    config: dict,
+    config: dict[str, Any],
     type_: type = str,
-) -> str | int | bool:
+) -> Any:
     """Get config value with precedence: env var > config file > default.
 
     Args:
@@ -378,7 +378,7 @@ _session_queue: queue.Queue[SessionTask] = queue.Queue()
 class PrometheusMetrics:
     """Thread-safe Prometheus-compatible metrics collector."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._lock = threading.Lock()
         self._start_time = time.time()
 
@@ -555,12 +555,12 @@ def save_session_agents() -> None:
         log.warning(f"Failed to save session agents: {e}")
 
 
-def load_session_agents() -> dict[str, dict]:
+def load_session_agents() -> dict[str, dict[str, Any]]:
     """Load session-to-agent mapping from disk."""
     if not SESSION_AGENTS_FILE.exists():
         return {}
     try:
-        return json.loads(SESSION_AGENTS_FILE.read_text())
+        return cast(dict[str, dict[str, Any]], json.loads(SESSION_AGENTS_FILE.read_text()))
     except (json.JSONDecodeError, OSError) as e:
         log.warning(f"Failed to load session agents: {e}")
         return {}
@@ -640,9 +640,9 @@ def record_message_sent(agent_id: str) -> None:
 # =============================================================================
 
 
-def load_agents() -> dict[str, dict]:
+def load_agents() -> dict[str, dict[str, Any]]:
     """Load all registered agents, keyed by agent ID."""
-    agents = {}
+    agents: dict[str, dict[str, Any]] = {}
     if not AGENTS_DIR.exists():
         return agents
     for f in AGENTS_DIR.glob("*.json"):
@@ -654,11 +654,11 @@ def load_agents() -> dict[str, dict]:
     return agents
 
 
-def is_agent_active(agent: dict) -> bool:
+def is_agent_active(agent: dict[str, Any]) -> bool:
     """Check if agent has been seen within the stale threshold."""
-    last_seen = agent.get("lastSeen", 0)
+    last_seen = cast(float, agent.get("lastSeen", 0))
     age_seconds = (time.time() * 1000 - last_seen) / 1000
-    return age_seconds < AGENT_STALE_SECONDS
+    return cast(bool, age_seconds < AGENT_STALE_SECONDS)
 
 
 # =============================================================================
@@ -666,26 +666,26 @@ def is_agent_active(agent: dict) -> bool:
 # =============================================================================
 
 
-def load_thread(thread_id: str) -> dict | None:
+def load_thread(thread_id: str) -> dict[str, Any] | None:
     """Load a thread by ID."""
     path = THREADS_DIR / f"{thread_id}.json"
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text())
+        return cast(dict[str, Any], json.loads(path.read_text()))
     except (json.JSONDecodeError, OSError) as e:
         log.warning(f"Failed to load thread {thread_id}: {e}")
         return None
 
 
-def save_thread(thread: dict) -> None:
+def save_thread(thread: dict[str, Any]) -> None:
     """Save a thread."""
     THREADS_DIR.mkdir(parents=True, exist_ok=True)
     path = THREADS_DIR / f"{thread['id']}.json"
     path.write_text(json.dumps(thread, indent=2))
 
 
-def create_thread(msg: dict) -> dict:
+def create_thread(msg: dict[str, Any]) -> dict[str, Any]:
     """Create a new thread from a message."""
     thread_id = msg.get("threadId") or str(uuid.uuid4())[:12]
     now = int(time.time() * 1000)
@@ -708,7 +708,7 @@ def create_thread(msg: dict) -> dict:
     return thread
 
 
-def update_thread_participants(thread: dict, msg: dict) -> None:
+def update_thread_participants(thread: dict[str, Any], msg: dict[str, Any]) -> None:
     """Add new participants to a thread."""
     participants = set(thread.get("participants", []))
     participants.add(msg.get("from", "unknown"))
@@ -749,10 +749,10 @@ def archive_thread_messages(thread_id: str) -> None:
             continue
 
 
-def ensure_thread_id(msg: dict, msg_path: Path) -> str:
+def ensure_thread_id(msg: dict[str, Any], msg_path: Path) -> str:
     """Ensure message has a threadId, creating one if needed."""
     if msg.get("threadId"):
-        thread_id = msg["threadId"]
+        thread_id = cast(str, msg["threadId"])
         thread = load_thread(thread_id)
         if thread:
             update_thread_participants(thread, msg)
@@ -767,19 +767,19 @@ def ensure_thread_id(msg: dict, msg_path: Path) -> str:
         msg_path.write_text(json.dumps(msg, indent=2))
         log.debug(f"Auto-assigned threadId {thread_id} to message {msg_path.name}")
 
-    return msg.get("threadId", "")
+    return cast(str, msg.get("threadId", ""))
 
 
-def check_thread_resolution(msg: dict) -> bool:
+def check_thread_resolution(msg: dict[str, Any]) -> bool:
     """Check if message resolves a thread. Returns True if resolved."""
     if msg.get("type") != "completion":
         return False
 
-    content = msg.get("content", "").upper()
+    content = cast(str, msg.get("content", "")).upper()
     if "RESOLVED" not in content:
         return False
 
-    thread_id = msg.get("threadId")
+    thread_id = cast(str, msg.get("threadId"))
     if not thread_id:
         return False
 
@@ -793,7 +793,7 @@ def check_thread_resolution(msg: dict) -> bool:
     is_broadcast = msg.get("to") == "all" or thread.get("createdBy") == "all"
 
     if is_owner or is_broadcast:
-        resolve_thread(thread_id, sender)
+        resolve_thread(thread_id, cast(str, sender))
         return True
 
     return False
@@ -888,7 +888,7 @@ def gc_session_agents() -> int:
     return 0
 
 
-def run_gc(agents: dict[str, dict]) -> None:
+def run_gc(agents: dict[str, dict[str, Any]]) -> None:
     """Run garbage collection on messages, threads, stale agents, and oriented sessions."""
     now_ms = int(time.time() * 1000)
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1106,12 +1106,12 @@ def is_hub_server_running() -> bool:
     """Check if OpenCode hub server is responding on the configured port."""
     try:
         resp = requests.get(f"{OPENCODE_URL}/session", timeout=2)
-        return resp.status_code == 200
+        return cast(bool, resp.status_code == 200)
     except requests.RequestException:
         return False
 
 
-def start_hub_server() -> subprocess.Popen | None:
+def start_hub_server() -> subprocess.Popen[bytes] | None:
     """Launch OpenCode hub server in headless mode.
 
     The hub server provides HTTP API access to ALL OpenCode sessions,
@@ -1415,7 +1415,7 @@ def _parse_session_id_from_json_output(stdout: bytes | None) -> str | None:
         event = json.loads(first_line)
         session_id = event.get("sessionID")
         if session_id and isinstance(session_id, str) and session_id.startswith("ses_"):
-            return session_id
+            return cast(str, session_id)
         return None
     except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as e:
         log.warning(f"Failed to parse coordinator JSON output: {e}")
@@ -1767,18 +1767,18 @@ def poll_coordinator_cost() -> None:
 # =============================================================================
 
 
-def get_sessions_uncached() -> list[dict] | None:
+def get_sessions_uncached() -> list[dict[str, Any]] | None:
     """Fetch active OpenCode sessions (direct API call)."""
     try:
         resp = requests.get(f"{OPENCODE_URL}/session", timeout=5)
         resp.raise_for_status()
-        return resp.json()
+        return cast(list[dict[str, Any]], resp.json())
     except requests.RequestException as e:
         log.error(f"Failed to fetch sessions: {e}")
         return None
 
 
-def get_sessions() -> list[dict] | None:
+def get_sessions() -> list[dict[str, Any]] | None:
     """Fetch sessions with caching to avoid repeated API calls."""
     global _sessions_cache, _sessions_cache_time
 
@@ -1786,7 +1786,7 @@ def get_sessions() -> list[dict] | None:
     with _sessions_cache_lock:
         if now - _sessions_cache_time < SESSION_CACHE_TTL and _sessions_cache is not None:
             metrics.inc("agent_hub_cache_hits_total")
-            return _sessions_cache
+            return cast(list[dict[str, Any]], _sessions_cache)
 
         # Cache miss or expired
         metrics.inc("agent_hub_cache_misses_total")
@@ -1935,16 +1935,18 @@ def session_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> 
 # =============================================================================
 
 
-def load_opencode_session(path: Path) -> dict | None:
+def load_opencode_session(path: Path) -> dict[str, Any] | None:
     """Load an OpenCode session file."""
     try:
-        return json.loads(path.read_text())
+        return cast(dict[str, Any], json.loads(path.read_text()))
     except (json.JSONDecodeError, OSError) as e:
         log.warning(f"Failed to load session {path}: {e}")
         return None
 
 
-def find_agent_for_directory(directory: str, agents: dict[str, dict]) -> dict | None:
+def find_agent_for_directory(
+    directory: str, agents: dict[str, dict[str, Any]]
+) -> dict[str, Any] | None:
     """Find registered agent matching a directory/projectPath."""
     for agent in agents.values():
         if agent.get("projectPath") == directory:
@@ -1952,7 +1954,9 @@ def find_agent_for_directory(directory: str, agents: dict[str, dict]) -> dict | 
     return None
 
 
-def get_or_create_agent_for_directory(directory: str, agents: dict[str, dict]) -> dict:
+def get_or_create_agent_for_directory(
+    directory: str, agents: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
     """Find or auto-create an agent for a directory.
 
     If no agent is registered for this directory, creates one automatically
@@ -1997,7 +2001,7 @@ def get_or_create_agent_for_directory(directory: str, agents: dict[str, dict]) -
     return agent
 
 
-def generate_agent_id_for_session(session: dict) -> str:
+def generate_agent_id_for_session(session: dict[str, Any]) -> str:
     """Generate a unique agent ID from session metadata.
 
     Uses session slug if available (human-readable), otherwise falls back
@@ -2005,11 +2009,11 @@ def generate_agent_id_for_session(session: dict) -> str:
     even when multiple sessions share the same working directory.
     """
     slug = session.get("slug")
-    session_id = session.get("id", "")
+    session_id = cast(str, session.get("id", ""))
 
     if slug:
         # Use slug as primary identifier (e.g., "cosmic-panda")
-        return slug
+        return cast(str, slug)
 
     # Fallback to session ID (truncated for readability)
     if session_id.startswith("ses_"):
@@ -2019,7 +2023,9 @@ def generate_agent_id_for_session(session: dict) -> str:
     return f"session-{session_id[:12]}" if session_id else "unknown-session"
 
 
-def get_or_create_agent_for_session(session: dict, agents: dict[str, dict]) -> dict:
+def get_or_create_agent_for_session(
+    session: dict[str, Any], agents: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
     """Find or auto-create an agent for a specific session.
 
     Unlike get_or_create_agent_for_directory(), this creates a unique agent
@@ -2029,8 +2035,8 @@ def get_or_create_agent_for_session(session: dict, agents: dict[str, dict]) -> d
     The agent ID is derived from the session's slug (if available) or session ID,
     ensuring uniqueness across all sessions.
     """
-    session_id = session.get("id", "")
-    directory = session.get("directory", "")
+    session_id = cast(str, session.get("id", ""))
+    directory = cast(str, session.get("directory", ""))
 
     # Check if we already have a mapping for this session
     if session_id in SESSION_AGENTS:
@@ -2051,7 +2057,7 @@ def get_or_create_agent_for_session(session: dict, agents: dict[str, dict]) -> d
         "sessionId": session_id,  # Track which session this agent represents
         "projectPath": directory,  # Keep for reference/display
         "slug": session.get("slug"),
-        "role": f"Session agent for {session.get('title', directory)[:50]}",
+        "role": f"Session agent for {cast(str, session.get('title', directory))[:50]}",
         "capabilities": [],
         "collaboratesWith": [],
         "lastSeen": int(time.time() * 1000),
@@ -2081,7 +2087,9 @@ def get_or_create_agent_for_session(session: dict, agents: dict[str, dict]) -> d
     return agent
 
 
-def find_session_for_agent(agent: dict, sessions: list[dict]) -> dict | None:
+def find_session_for_agent(
+    agent: dict[str, Any], sessions: list[dict[str, Any]]
+) -> dict[str, Any] | None:
     """Find the session associated with an agent by session ID.
 
     This replaces directory-based matching with direct session ID lookup,
@@ -2106,7 +2114,7 @@ def find_session_for_agent(agent: dict, sessions: list[dict]) -> dict | None:
     return None
 
 
-def format_orientation(agent: dict, all_agents: dict[str, dict]) -> str:
+def format_orientation(agent: dict[str, Any], all_agents: dict[str, dict[str, Any]]) -> str:
     """Format orientation message for a newly detected agent session.
 
     Includes registration instructions with the session-specific agent ID.
@@ -2140,7 +2148,9 @@ def format_orientation(agent: dict, all_agents: dict[str, dict]) -> str:
     return " | ".join(parts)
 
 
-def orient_session(session_id: str, agent: dict, all_agents: dict[str, dict]) -> bool:
+def orient_session(
+    session_id: str, agent: dict[str, Any], all_agents: dict[str, dict[str, Any]]
+) -> bool:
     """Inject orientation message into a session and notify coordinator."""
     if not session_id:
         return False
@@ -2164,7 +2174,7 @@ def orient_session(session_id: str, agent: dict, all_agents: dict[str, dict]) ->
     inject_message(session_id, orientation)
 
     # Notify coordinator of new agent (coordinator will reach out to capture task)
-    notify_coordinator_new_agent(agent_id, directory)
+    notify_coordinator_new_agent(cast(str, agent_id), cast(str, directory))
 
     ORIENTED_SESSIONS.add(session_id)
     save_oriented_sessions()
@@ -2183,7 +2193,7 @@ def orient_session(session_id: str, agent: dict, all_agents: dict[str, dict]) ->
     return True
 
 
-def check_orientation_retries(agents: dict[str, dict]) -> None:
+def check_orientation_retries(agents: dict[str, dict[str, Any]]) -> None:
     """Re-inject orientation for sessions that haven't responded.
 
     Checks ORIENTATION_PENDING for sessions where:
@@ -2248,7 +2258,7 @@ def check_orientation_retries(agents: dict[str, dict]) -> None:
         del ORIENTATION_PENDING[session_id]
 
 
-def process_session_file(path: Path, agents: dict[str, dict]) -> None:
+def process_session_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     """Process an OpenCode session file and orient if needed.
 
     Only orients sessions created AFTER the daemon started.
@@ -2258,7 +2268,7 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     if not session:
         return
 
-    session_id = session.get("id", "")
+    session_id = cast(str, session.get("id", ""))
     if not session_id:
         return
 
@@ -2271,8 +2281,8 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
         return
 
     # Only orient sessions created AFTER daemon started OR updated recently
-    created_ms = session.get("time", {}).get("created", 0)
-    updated_ms = session.get("time", {}).get("updated", 0)
+    created_ms = cast(int, session.get("time", {}).get("created", 0))
+    updated_ms = cast(int, session.get("time", {}).get("updated", 0))
     if (
         created_ms < DAEMON_START_TIME_MS
         and (DAEMON_START_TIME_MS - updated_ms) > SESSION_RECENT_WINDOW_MS
@@ -2291,7 +2301,7 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     orient_session(session_id, agent, agents)
 
 
-def poll_active_sessions(agents: dict[str, dict]) -> None:
+def poll_active_sessions(agents: dict[str, dict[str, Any]]) -> None:
     """Poll API for active sessions and orient any new ones.
 
     Only considers sessions created AFTER the daemon started. This ensures:
@@ -2308,7 +2318,7 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
         return
 
     for session in sessions:
-        session_id = session.get("id", "")
+        session_id = cast(str, session.get("id", ""))
         if not session_id or session_id in ORIENTED_SESSIONS:
             continue
 
@@ -2318,8 +2328,8 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
             continue
 
         # Only orient sessions created AFTER daemon started OR updated recently
-        created_ms = session.get("time", {}).get("created", 0)
-        updated_ms = session.get("time", {}).get("updated", 0)
+        created_ms = cast(int, session.get("time", {}).get("created", 0))
+        updated_ms = cast(int, session.get("time", {}).get("updated", 0))
         if (
             created_ms < DAEMON_START_TIME_MS
             and (DAEMON_START_TIME_MS - updated_ms) > SESSION_RECENT_WINDOW_MS
@@ -2337,7 +2347,7 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
         orient_session(session_id, agent, agents)
 
 
-def format_notification(msg: dict, to_agent_id: str) -> str:
+def format_notification(msg: dict[str, Any], to_agent_id: str) -> str:
     """Format minimal agent-hub message notification."""
     from_agent = msg.get("from", "unknown")
     msg_type = msg.get("type", "message")
@@ -2353,7 +2363,7 @@ def format_notification(msg: dict, to_agent_id: str) -> str:
 
     lines = [
         f"{prefix}{header}",
-        content,
+        cast(str, content),
         "",
         f'Reply: agent-hub_send_message(from="{to_agent_id}", to="{from_agent}", type="completion", content="...")',
     ]
@@ -2366,17 +2376,17 @@ def format_notification(msg: dict, to_agent_id: str) -> str:
 # =============================================================================
 
 
-def process_message_file(path: Path, agents: dict[str, dict]) -> None:
+def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     """Process a new message file and inject if applicable."""
     try:
-        msg = json.loads(path.read_text())
+        msg = cast(dict[str, Any], json.loads(path.read_text()))
     except (json.JSONDecodeError, OSError) as e:
         log.warning(f"Failed to read message {path}: {e}")
         metrics.inc("agent_hub_messages_failed_total")
         return
 
     # Check rate limiting for sender
-    sender = msg.get("from", "unknown")
+    sender = cast(str, msg.get("from", "unknown"))
     allowed, reason = check_rate_limit(sender)
     if not allowed:
         log.warning(f"Rate limited message from {sender}: {reason}")
@@ -2406,7 +2416,7 @@ def process_message_file(path: Path, agents: dict[str, dict]) -> None:
     if to == "all":
         target_agents = list(agents.values())
     elif to in agents:
-        target_agents = [agents[to]]
+        target_agents = [agents[cast(str, to)]]
     else:
         log.info(f"Unknown target agent: {to}")
         metrics.inc("agent_hub_messages_failed_total")
@@ -2437,10 +2447,10 @@ def process_message_file(path: Path, agents: dict[str, dict]) -> None:
             f"Agent {agent['id']} (path={agent.get('projectPath')}) has {len(matching_sessions)} matching sessions"
         )
         if matching_sessions:
-            notification = format_notification(msg, agent["id"])
+            notification = format_notification(msg, cast(str, agent["id"]))
             for session in matching_sessions:
                 log.info(f"Injecting message into session {session['id']} for agent {agent['id']}")
-                inject_message(session["id"], notification)
+                inject_message(cast(str, session["id"]), notification)
                 delivered = True
         else:
             log.info(f"No session found for agent {agent['id']}")
@@ -2453,7 +2463,7 @@ def process_message_file(path: Path, agents: dict[str, dict]) -> None:
             path.write_text(json.dumps(msg, indent=2))
             log.info(f"Marked message {path.name} as read")
         except OSError as e:
-            log.warning(f"Failed to mark message as read: {e}")
+            log.warning(f"Marked message as read failed: {e}")
         metrics.inc("agent_hub_messages_total")
     else:
         metrics.inc("agent_hub_messages_failed_total")
@@ -2507,16 +2517,16 @@ class SessionHandler(FileSystemEventHandler):
 class AgentHandler(FileSystemEventHandler):
     """Handle agent registration changes to reload agents dict."""
 
-    def __init__(self, agents: dict[str, dict]):
+    def __init__(self, agents: dict[str, dict[str, Any]]):
         self.agents = agents
 
     def on_created(self, event: FileSystemEvent) -> None:
         self._reload()
 
-    def on_modified(self, event) -> None:
+    def on_modified(self, event: FileSystemEvent) -> None:
         self._reload()
 
-    def on_deleted(self, event) -> None:
+    def on_deleted(self, event: FileSystemEvent) -> None:
         self._reload()
 
     def _reload(self) -> None:
@@ -2683,7 +2693,7 @@ def uninstall_systemd_service() -> bool:
 # =============================================================================
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Agent Hub Daemon - Multi-agent coordination for OpenCode",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -2792,7 +2802,7 @@ Examples:
     shutdown_event = threading.Event()
 
     # Handle signals for graceful shutdown
-    def shutdown_handler(signum, frame):
+    def shutdown_handler(signum: int, frame: Any) -> None:
         log.info(f"Received signal {signum}, shutting down...")
         shutdown_event.set()
         observer.stop()
@@ -2802,7 +2812,7 @@ Examples:
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
-    def session_poller():
+    def session_poller() -> None:
         """Background thread that polls for new active sessions."""
         while not shutdown_event.is_set():
             try:
@@ -2812,7 +2822,7 @@ Examples:
                 log.error(f"Session poller error: {e}")
             shutdown_event.wait(SESSION_POLL_SECONDS)
 
-    def gc_worker():
+    def gc_worker() -> None:
         """Background thread for garbage collection."""
         while not shutdown_event.is_set():
             try:
@@ -2821,7 +2831,7 @@ Examples:
                 log.error(f"GC error: {e}")
             shutdown_event.wait(GC_INTERVAL_SECONDS)
 
-    def hub_monitor():
+    def hub_monitor() -> None:
         """Background thread to monitor hub server health."""
         while not shutdown_event.is_set():
             if HUB_SERVER_PROCESS is not None and HUB_SERVER_PROCESS.poll() is not None:
@@ -2829,7 +2839,7 @@ Examples:
                 start_hub_server()
             shutdown_event.wait(10)  # Check every 10 seconds
 
-    def coordinator_monitor():
+    def coordinator_monitor() -> None:
         """Background thread to monitor coordinator session on hub server."""
         while not shutdown_event.is_set():
             if COORDINATOR_ENABLED and COORDINATOR_SESSION_ID is not None:
@@ -2840,7 +2850,7 @@ Examples:
                     # Note: We don't restart - coordinator is only created at daemon startup
             shutdown_event.wait(30)  # Check every 30 seconds
 
-    def metrics_worker():
+    def metrics_worker() -> None:
         """Background thread to write metrics and log summaries."""
         while not shutdown_event.is_set():
             try:

@@ -1,7 +1,7 @@
 """Placeholder tests for opencode-agent-hub."""
 
 
-def test_import():
+def test_import() -> None:
     """Verify the package can be imported."""
     from importlib.metadata import version
 
@@ -10,14 +10,14 @@ def test_import():
     assert opencode_agent_hub.__version__ == version("opencode-agent-hub")
 
 
-def test_daemon_import():
+def test_daemon_import() -> None:
     """Verify daemon module can be imported."""
     from opencode_agent_hub import daemon
 
     assert hasattr(daemon, "main")
 
 
-def test_watch_import():
+def test_watch_import() -> None:
     """Verify watch module can be imported."""
     from opencode_agent_hub import watch
 

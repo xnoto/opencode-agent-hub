@@ -8,7 +8,7 @@ import time
 from unittest import mock
 
 
-def _reset_orientation_state():
+def _reset_orientation_state() -> None:
     """Clear orientation retry state between tests."""
     from opencode_agent_hub import daemon
 
@@ -16,7 +16,7 @@ def _reset_orientation_state():
     daemon.ORIENTED_SESSIONS.clear()
 
 
-def test_orient_session_adds_to_pending():
+def test_orient_session_adds_to_pending() -> None:
     """After orienting a session, it should be tracked in ORIENTATION_PENDING."""
     from opencode_agent_hub import daemon
 
@@ -49,7 +49,7 @@ def test_orient_session_adds_to_pending():
         _reset_orientation_state()
 
 
-def test_orient_session_no_pending_when_retry_disabled():
+def test_orient_session_no_pending_when_retry_disabled() -> None:
     """When ORIENTATION_RETRY_MAX=0, sessions should NOT be added to ORIENTATION_PENDING."""
     from opencode_agent_hub import daemon
 
@@ -78,7 +78,7 @@ def test_orient_session_no_pending_when_retry_disabled():
         _reset_orientation_state()
 
 
-def test_coordinator_session_not_added_to_pending():
+def test_coordinator_session_not_added_to_pending() -> None:
     """Coordinator sessions should be oriented but NOT tracked for retry."""
     from opencode_agent_hub import daemon
 
@@ -106,7 +106,7 @@ def test_coordinator_session_not_added_to_pending():
         _reset_orientation_state()
 
 
-def test_no_retry_before_delay_elapsed():
+def test_no_retry_before_delay_elapsed() -> None:
     """check_orientation_retries should not retry before ORIENTATION_RETRY_DELAY."""
     from opencode_agent_hub import daemon
 
@@ -149,7 +149,7 @@ def test_no_retry_before_delay_elapsed():
         _reset_orientation_state()
 
 
-def test_retry_fires_after_delay():
+def test_retry_fires_after_delay() -> None:
     """check_orientation_retries should re-inject after ORIENTATION_RETRY_DELAY."""
     from opencode_agent_hub import daemon
 
@@ -195,7 +195,7 @@ def test_retry_fires_after_delay():
         _reset_orientation_state()
 
 
-def test_agent_responded_clears_pending():
+def test_agent_responded_clears_pending() -> None:
     """When agent's lastSeen is newer than oriented_at, remove from pending."""
     from opencode_agent_hub import daemon
 
@@ -237,7 +237,7 @@ def test_agent_responded_clears_pending():
         _reset_orientation_state()
 
 
-def test_max_retries_gives_up():
+def test_max_retries_gives_up() -> None:
     """After ORIENTATION_RETRY_MAX retries, session is removed from pending."""
     from opencode_agent_hub import daemon
 
@@ -277,7 +277,7 @@ def test_max_retries_gives_up():
         _reset_orientation_state()
 
 
-def test_empty_pending_is_noop():
+def test_empty_pending_is_noop() -> None:
     """check_orientation_retries with empty ORIENTATION_PENDING should be a no-op."""
     from opencode_agent_hub import daemon
 
@@ -289,7 +289,7 @@ def test_empty_pending_is_noop():
     mock_inject.assert_not_called()
 
 
-def test_unknown_agent_still_retries():
+def test_unknown_agent_still_retries() -> None:
     """If the agent_id is not in the agents dict, retry should still fire."""
     from opencode_agent_hub import daemon
 
@@ -326,7 +326,7 @@ def test_unknown_agent_still_retries():
         _reset_orientation_state()
 
 
-def test_multiple_sessions_independent():
+def test_multiple_sessions_independent() -> None:
     """Multiple pending sessions are processed independently."""
     from opencode_agent_hub import daemon
 
@@ -416,7 +416,7 @@ def test_multiple_sessions_independent():
         _reset_orientation_state()
 
 
-def test_metrics_incremented_on_retry():
+def test_metrics_incremented_on_retry() -> None:
     """Verify metrics are incremented on retry and give-up."""
     from opencode_agent_hub import daemon
 

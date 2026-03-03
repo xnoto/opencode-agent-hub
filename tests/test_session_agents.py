@@ -3,10 +3,11 @@
 import json
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 
-def test_generate_agent_id_for_session_with_slug():
+def test_generate_agent_id_for_session_with_slug() -> None:
     """Verify agent ID is generated from session slug when available."""
     from opencode_agent_hub.daemon import generate_agent_id_for_session
 
@@ -20,7 +21,7 @@ def test_generate_agent_id_for_session_with_slug():
     assert agent_id == "cosmic-panda"
 
 
-def test_generate_agent_id_for_session_without_slug():
+def test_generate_agent_id_for_session_without_slug() -> None:
     """Verify agent ID is generated from session ID when slug is missing."""
     from opencode_agent_hub.daemon import generate_agent_id_for_session
 
@@ -34,7 +35,7 @@ def test_generate_agent_id_for_session_without_slug():
     assert agent_id == "session-abc123def456"
 
 
-def test_generate_agent_id_for_session_empty_slug():
+def test_generate_agent_id_for_session_empty_slug() -> None:
     """Verify empty slug falls back to session ID."""
     from opencode_agent_hub.daemon import generate_agent_id_for_session
 
@@ -49,7 +50,7 @@ def test_generate_agent_id_for_session_empty_slug():
     assert agent_id == "session-xyz789"
 
 
-def test_get_or_create_agent_for_session_new():
+def test_get_or_create_agent_for_session_new() -> None:
     """Verify new agent is created for unknown session."""
     from opencode_agent_hub import daemon
 
@@ -61,7 +62,7 @@ def test_get_or_create_agent_for_session_new():
         "slug": "brave-tiger",
         "directory": "/home/user/newproject",
     }
-    agents = {}
+    agents: dict[str, dict[str, Any]] = {}
 
     agent = daemon.get_or_create_agent_for_session(session, agents)
 
@@ -71,7 +72,7 @@ def test_get_or_create_agent_for_session_new():
     assert "ses_new123" in daemon.SESSION_AGENTS
 
 
-def test_get_or_create_agent_for_session_existing():
+def test_get_or_create_agent_for_session_existing() -> None:
     """Verify existing agent is returned for known session."""
     from opencode_agent_hub import daemon
 
@@ -105,7 +106,7 @@ def test_get_or_create_agent_for_session_existing():
     assert agent["lastSeen"] == 12345
 
 
-def test_find_session_for_agent_with_session_id():
+def test_find_session_for_agent_with_session_id() -> None:
     """Verify session lookup works with sessionId field."""
     from opencode_agent_hub.daemon import find_session_for_agent
 
@@ -126,7 +127,7 @@ def test_find_session_for_agent_with_session_id():
     assert session["id"] == "ses_target"
 
 
-def test_find_session_for_agent_fallback_to_session_agents():
+def test_find_session_for_agent_fallback_to_session_agents() -> None:
     """Verify session lookup falls back to SESSION_AGENTS mapping for legacy agents."""
     from opencode_agent_hub import daemon
     from opencode_agent_hub.daemon import find_session_for_agent
@@ -156,7 +157,7 @@ def test_find_session_for_agent_fallback_to_session_agents():
     daemon.SESSION_AGENTS = {}
 
 
-def test_gc_session_agents_removes_stale():
+def test_gc_session_agents_removes_stale() -> None:
     """Verify gc_session_agents removes mappings for non-existent sessions."""
     from opencode_agent_hub import daemon
 
@@ -181,7 +182,7 @@ def test_gc_session_agents_removes_stale():
     assert "ses_stale" not in daemon.SESSION_AGENTS
 
 
-def test_gc_session_agents_empty():
+def test_gc_session_agents_empty() -> None:
     """Verify gc_session_agents handles empty mapping."""
     from opencode_agent_hub import daemon
 
@@ -192,7 +193,7 @@ def test_gc_session_agents_empty():
     assert cleaned == 0
 
 
-def test_gc_session_agents_api_failure():
+def test_gc_session_agents_api_failure() -> None:
     """Verify gc_session_agents doesn't clear on API failure."""
     from opencode_agent_hub import daemon
 
@@ -211,7 +212,7 @@ def test_gc_session_agents_api_failure():
     assert "ses_keep" in daemon.SESSION_AGENTS
 
 
-def test_save_load_session_agents():
+def test_save_load_session_agents() -> None:
     """Verify session agents can be saved and loaded."""
     from opencode_agent_hub import daemon
 
