@@ -36,12 +36,20 @@ Enables multiple AI agents to communicate and coordinate through a shared messag
 install -Dpm 644 contrib/systemd/agent-hub-daemon.service \
     %{buildroot}/usr/lib/systemd/user/agent-hub-daemon.service
 
+# Install coordinator templates
+install -Dpm 644 contrib/coordinator/opencode.json \
+    %{buildroot}/usr/share/opencode-agent-hub/coordinator/opencode.json
+install -Dpm 644 contrib/coordinator/AGENTS.md \
+    %{buildroot}/usr/share/opencode-agent-hub/coordinator/AGENTS.md
+
 %files -f %{pyproject_files}
 %license LICENSE
 %doc README.md
 %{_bindir}/agent-hub-daemon
 %{_bindir}/agent-hub-watch
 /usr/lib/systemd/user/agent-hub-daemon.service
+/usr/share/opencode-agent-hub/coordinator/opencode.json
+/usr/share/opencode-agent-hub/coordinator/AGENTS.md
 
 %changelog
 * Thu Jan 22 2026 xnoto - 0.4.0-1
