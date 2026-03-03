@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 
 def test_find_coordinator_agents_md_explicit_config():
     """Verify explicit config path takes highest priority."""
@@ -150,9 +152,12 @@ def test_setup_coordinator_directory_copies_template():
         config_dir.mkdir()
         coord_dir = Path(tmpdir) / "coordinator"
 
-        # Create user config template
+        # Create user config templates
         user_template = config_dir / "AGENTS.md"
         user_template.write_text("# Custom Coordinator Instructions")
+        # Create opencode.json template (required)
+        opencode_json = config_dir / "opencode.json"
+        opencode_json.write_text('{"permission": []}')
 
         original_config = daemon.COORDINATOR_AGENTS_MD
         original_config_dir = daemon.CONFIG_DIR
@@ -183,6 +188,10 @@ def test_setup_coordinator_directory_creates_minimal_when_no_template():
         config_dir = Path(tmpdir) / "config"
         config_dir.mkdir()  # Empty config dir
         coord_dir = Path(tmpdir) / "coordinator"
+
+        # Create opencode.json template (required)
+        opencode_json = config_dir / "opencode.json"
+        opencode_json.write_text('{"permission": []}')
 
         original_config = daemon.COORDINATOR_AGENTS_MD
         original_config_dir = daemon.CONFIG_DIR
@@ -225,12 +234,20 @@ def test_setup_coordinator_directory_skips_if_exists():
     from opencode_agent_hub import daemon
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        config_dir = Path(tmpdir) / "config"
+        config_dir.mkdir()
         coord_dir = Path(tmpdir) / "coordinator"
         coord_dir.mkdir()
         existing = coord_dir / "AGENTS.md"
         existing.write_text("# Existing content - should not be overwritten")
 
+        # Create opencode.json template (required)
+        opencode_json = config_dir / "opencode.json"
+        opencode_json.write_text('{"permission": []}')
+
+        original_config_dir = daemon.CONFIG_DIR
         original_coord_dir = daemon.COORDINATOR_DIR
+        daemon.CONFIG_DIR = config_dir
         daemon.COORDINATOR_DIR = coord_dir
 
         try:
@@ -240,6 +257,7 @@ def test_setup_coordinator_directory_skips_if_exists():
             # Verify content was NOT overwritten
             assert existing.read_text() == "# Existing content - should not be overwritten"
         finally:
+            daemon.CONFIG_DIR = original_config_dir
             daemon.COORDINATOR_DIR = original_coord_dir
 
 
@@ -329,12 +347,14 @@ def test_parse_session_id_from_json_output_non_string():
 
 
 def test_find_coordinator_session_matches_title():
-    """Verify find_coordinator_session matches by COORDINATOR_TITLE."""
+    """Verify find_coordinator_session matches by coordinator title."""
     from opencode_agent_hub import daemon
+
+    coordinator_title = daemon._get_coordinator_title()
 
     sessions = [
         {"id": "ses_worker1", "title": "Fix bug in auth", "directory": "/project"},
-        {"id": "ses_coord", "title": daemon.COORDINATOR_TITLE, "directory": "/project"},
+        {"id": "ses_coord", "title": coordinator_title, "directory": "/project"},
         {"id": "ses_worker2", "title": "Add feature X", "directory": "/project"},
     ]
 
@@ -505,12 +525,22 @@ def test_start_coordinator_captures_session_id_from_json():
         mock_result = mock.MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = json_output
+        mock_result.stderr = b""
+
+        mock_file = mock.MagicMock()
+
+        # Mock HTTP response for session creation
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "ses_newcoord123"}
 
         with (
             mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
-            mock.patch.object(daemon, "find_coordinator_session", return_value=None),
+            mock.patch.object(daemon, "get_sessions_uncached", return_value=[]),
+            mock.patch("requests.post", return_value=mock_response),
             mock.patch("shutil.which", return_value="/usr/bin/opencode"),
             mock.patch("subprocess.run", return_value=mock_result),
+            mock.patch("builtins.open", return_value=mock_file),
         ):
             result = daemon.start_coordinator()
 
@@ -539,18 +569,22 @@ def test_start_coordinator_fallback_to_title_search():
         mock_result = mock.MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = b""  # Empty output, can't parse
+        mock_result.stderr = b""
+
+        mock_file = mock.MagicMock()
+
+        # Mock HTTP response for session creation
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "ses_fallback_456"}
 
         with (
             mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
-            # First call (in start_coordinator pre-check): no existing session
-            # Second call (fallback): found it by title
-            mock.patch.object(
-                daemon,
-                "find_coordinator_session",
-                side_effect=[None, "ses_fallback_456"],
-            ),
+            mock.patch.object(daemon, "get_sessions_uncached", return_value=[]),
+            mock.patch("requests.post", return_value=mock_response),
             mock.patch("shutil.which", return_value="/usr/bin/opencode"),
             mock.patch("subprocess.run", return_value=mock_result),
+            mock.patch("builtins.open", return_value=mock_file),
         ):
             result = daemon.start_coordinator()
 
@@ -564,7 +598,7 @@ def test_start_coordinator_fallback_to_title_search():
 
 
 def test_start_coordinator_reuses_existing_session():
-    """Verify start_coordinator reuses an existing coordinator session."""
+    """Verify start_coordinator kills existing and creates new session."""
     from opencode_agent_hub import daemon
 
     original_session_id = daemon.COORDINATOR_SESSION_ID
@@ -576,18 +610,31 @@ def test_start_coordinator_reuses_existing_session():
         daemon.COORDINATOR_ENABLED = True
         daemon.ORIENTED_SESSIONS = set()
 
+        # Mock HTTP responses
+        mock_post_response = mock.MagicMock()
+        mock_post_response.status_code = 200
+        mock_post_response.json.return_value = {"id": "ses_new_789"}
+
+        mock_result = mock.MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = b""
+        mock_result.stderr = b""
+
+        mock_file = mock.MagicMock()
+
         with (
             mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
-            mock.patch.object(daemon, "find_coordinator_session", return_value="ses_existing_789"),
-            # Should NOT call subprocess.run at all
-            mock.patch("subprocess.run") as mock_run,
+            mock.patch.object(daemon, "get_sessions_uncached", return_value=[]),
+            mock.patch("requests.post", return_value=mock_post_response),
+            mock.patch("shutil.which", return_value="/usr/bin/opencode"),
+            mock.patch("subprocess.run", return_value=mock_result),
+            mock.patch("builtins.open", return_value=mock_file),
         ):
             result = daemon.start_coordinator()
 
         assert result is True
-        assert daemon.COORDINATOR_SESSION_ID == "ses_existing_789"
-        assert "ses_existing_789" in daemon.ORIENTED_SESSIONS
-        mock_run.assert_not_called()
+        assert daemon.COORDINATOR_SESSION_ID == "ses_new_789"
+        assert "ses_new_789" in daemon.ORIENTED_SESSIONS
     finally:
         daemon.COORDINATOR_SESSION_ID = original_session_id
         daemon.COORDINATOR_ENABLED = original_enabled
@@ -660,7 +707,7 @@ def test_poll_active_sessions_skips_coordinator():
         sessions = [
             {
                 "id": "ses_coord_abc",
-                "title": daemon.COORDINATOR_TITLE,
+                "title": daemon._get_coordinator_title(),
                 "directory": "/project",
                 "time": {"created": 2000},
             },
@@ -751,7 +798,7 @@ def test_process_session_file_skips_coordinator():
 
         coordinator_session = {
             "id": "ses_coord_file",
-            "title": daemon.COORDINATOR_TITLE,
+            "title": daemon._get_coordinator_title(),
             "directory": "/project",
             "time": {"created": 2000},
         }
@@ -840,7 +887,7 @@ def test_no_phantom_agent_for_coordinator_end_to_end():
         sessions = [
             {
                 "id": "ses_coord_e2e",
-                "title": daemon.COORDINATOR_TITLE,
+                "title": daemon._get_coordinator_title(),
                 "directory": "/project",
                 "time": {"created": 2000},
             },
@@ -879,3 +926,185 @@ def test_no_phantom_agent_for_coordinator_end_to_end():
         daemon.ORIENTED_SESSIONS = original_oriented
         daemon.DAEMON_START_TIME_MS = original_start_time
         daemon.SESSION_AGENTS = original_session_agents
+
+
+def test_session_has_blocking_permissions_with_deny_question():
+    """Verify session with question:deny permission is detected as blocking."""
+    from opencode_agent_hub import daemon
+
+    session = {
+        "id": "ses_blocked",
+        "title": "test",
+        "permission": [
+            {"permission": "question", "pattern": "*", "action": "deny"},
+            {"permission": "plan_enter", "pattern": "*", "action": "deny"},
+        ],
+    }
+    assert daemon.session_has_blocking_permissions(session) is True
+
+
+def test_session_has_blocking_permissions_without_question_deny():
+    """Verify session without question:deny is not blocking."""
+    from opencode_agent_hub import daemon
+
+    session = {
+        "id": "ses_allowed",
+        "title": "test",
+        "permission": [
+            {"permission": "plan_enter", "pattern": "*", "action": "deny"},
+        ],
+    }
+    assert daemon.session_has_blocking_permissions(session) is False
+
+
+def test_session_has_blocking_permissions_empty_permissions():
+    """Verify session with empty permissions is not blocking."""
+    from opencode_agent_hub import daemon
+
+    session = {"id": "ses_empty", "title": "test", "permission": []}
+    assert daemon.session_has_blocking_permissions(session) is False
+
+
+def test_session_has_blocking_permissions_no_permissions_field():
+    """Verify session without permission field is not blocking."""
+    from opencode_agent_hub import daemon
+
+    session = {"id": "ses_no_perm", "title": "test"}
+    assert daemon.session_has_blocking_permissions(session) is False
+
+
+def test_session_has_blocking_permissions_invalid_permissions_type():
+    """Verify session with non-list permission field is not blocking."""
+    from opencode_agent_hub import daemon
+
+    session = {"id": "ses_invalid", "title": "test", "permission": "deny_all"}
+    assert daemon.session_has_blocking_permissions(session) is False
+
+
+def test_find_coordinator_session_raises_on_blocking_permissions():
+    """Verify find_coordinator_session raises PreflightError when session has blocking permissions."""
+    from opencode_agent_hub import daemon
+
+    sessions = [
+        {
+            "id": "ses_blocked_coord",
+            "title": daemon._get_coordinator_title(),
+            "permission": [{"permission": "question", "pattern": "*", "action": "deny"}],
+        }
+    ]
+
+    with (
+        mock.patch.object(daemon, "get_sessions_uncached", return_value=sessions),
+        pytest.raises(daemon.PreflightError) as exc_info,
+    ):
+        daemon.find_coordinator_session()
+
+    assert "blocking permissions" in str(exc_info.value)
+    assert "ses_bloc" in str(exc_info.value)  # Session ID truncated to 8 chars
+
+
+def test_find_coordinator_session_returns_valid_session():
+    """Verify find_coordinator_session returns ID when session has no blocking permissions."""
+    from opencode_agent_hub import daemon
+
+    sessions = [
+        {
+            "id": "ses_valid_coord",
+            "title": daemon._get_coordinator_title(),
+            "permission": [],
+        }
+    ]
+
+    with mock.patch.object(daemon, "get_sessions_uncached", return_value=sessions):
+        result = daemon.find_coordinator_session()
+        assert result == "ses_valid_coord"
+
+
+def test_setup_coordinator_directory_copies_opencode_json_template():
+    """Verify setup_coordinator_directory copies opencode.json from template."""
+    from opencode_agent_hub import daemon
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_dir = daemon.COORDINATOR_DIR
+        daemon.COORDINATOR_DIR = Path(tmpdir)
+
+        # Create a template opencode.json
+        template_dir = Path(tmpdir) / "template"
+        template_dir.mkdir()
+        template_json = template_dir / "opencode.json"
+        template_config = {
+            "$schema": "https://opencode.ai/config.json",
+            "permission": [{"permission": "*", "pattern": "*", "action": "allow"}],
+        }
+        template_json.write_text(json.dumps(template_config))
+
+        try:
+            with mock.patch.object(
+                daemon, "find_coordinator_opencode_json_template", return_value=template_json
+            ):
+                result = daemon.setup_coordinator_directory()
+                assert result is True
+
+            opencode_json = Path(tmpdir) / "opencode.json"
+            assert opencode_json.exists()
+
+            config = json.loads(opencode_json.read_text())
+            assert config["$schema"] == "https://opencode.ai/config.json"
+            assert config["permission"][0]["action"] == "allow"
+        finally:
+            daemon.COORDINATOR_DIR = original_dir
+
+
+def test_setup_coordinator_directory_fails_without_template():
+    """Verify setup_coordinator_directory returns False when no opencode.json template found."""
+    from opencode_agent_hub import daemon
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_dir = daemon.COORDINATOR_DIR
+        daemon.COORDINATOR_DIR = Path(tmpdir)
+
+        try:
+            with mock.patch.object(
+                daemon, "find_coordinator_opencode_json_template", return_value=None
+            ):
+                result = daemon.setup_coordinator_directory()
+                assert result is False
+        finally:
+            daemon.COORDINATOR_DIR = original_dir
+
+
+def test_setup_coordinator_directory_overwrites_existing_opencode_json():
+    """Verify setup_coordinator_directory always overwrites opencode.json with template."""
+    from opencode_agent_hub import daemon
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        original_dir = daemon.COORDINATOR_DIR
+        daemon.COORDINATOR_DIR = Path(tmpdir)
+
+        # Create a template opencode.json
+        template_dir = Path(tmpdir) / "template"
+        template_dir.mkdir()
+        template_json = template_dir / "opencode.json"
+        template_config = {
+            "$schema": "https://opencode.ai/config.json",
+            "permission": [{"permission": "agent-hub_*", "pattern": "*", "action": "allow"}],
+        }
+        template_json.write_text(json.dumps(template_config))
+
+        # Create existing opencode.json with different content
+        existing_config = {"custom": "value"}
+        opencode_json = Path(tmpdir) / "opencode.json"
+        opencode_json.write_text(json.dumps(existing_config))
+
+        try:
+            with mock.patch.object(
+                daemon, "find_coordinator_opencode_json_template", return_value=template_json
+            ):
+                result = daemon.setup_coordinator_directory()
+                assert result is True
+
+            # Should overwrite with template
+            config = json.loads(opencode_json.read_text())
+            assert config == template_config
+        finally:
+            daemon.COORDINATOR_DIR = original_dir

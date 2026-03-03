@@ -271,10 +271,20 @@ _coordinator_agents_md_str = str(
 COORDINATOR_AGENTS_MD: Path | None = (
     Path(os.path.expanduser(_coordinator_agents_md_str)) if _coordinator_agents_md_str else None
 )
-# Fixed title used when creating coordinator sessions via `opencode run --title`.
-# Used by find_coordinator_session() as a fallback to identify the coordinator
-# when COORDINATOR_SESSION_ID is not yet set (e.g., daemon restart with existing session).
-COORDINATOR_TITLE = "agent-hub-coordinator"
+# Base title for coordinator sessions
+COORDINATOR_TITLE_BASE = "agent-hub-coordinator"
+
+
+def _get_coordinator_title() -> str:
+    """Get the coordinator session title.
+
+    Always uses the base title. Since we kill all coordinators at startup,
+    there's no need for hash-based differentiation.
+
+    Returns the title to use for coordinator session creation.
+    """
+    return COORDINATOR_TITLE_BASE
+
 
 # Coordinator cost estimation pricing (per token, NOT per million tokens)
 # Default prices: MiniMax M2.5 standard pricing as of 2025-06
@@ -1058,6 +1068,29 @@ def check_agent_hub_mcp_configured() -> bool:
         )
 
     log.info("Preflight: agent-hub MCP configured and enabled")
+
+    # Check that agent-hub tools are allowed in permissions
+    permissions = config.get("permission", {})
+    agent_hub_allowed = False
+
+    if isinstance(permissions, dict):
+        # Check for agent-hub_* permission
+        agent_hub_perm = permissions.get("agent-hub_*")
+        if agent_hub_perm == "allow":
+            agent_hub_allowed = True
+
+    if not agent_hub_allowed:
+        raise PreflightError(
+            "agent-hub tools are not allowed in OpenCode permissions.\n\n"
+            f'To fix, add "agent-hub_*": "allow" to the permission section in {config_path}:\n\n'
+            '  "permission": {\n'
+            '    "agent-hub_*": "allow",\n'
+            "    ...\n"
+            "  }\n\n"
+            "Then restart OpenCode."
+        )
+
+    log.info("Preflight: agent-hub tools allowed in permissions")
     return True
 
 
@@ -1193,34 +1226,111 @@ def find_coordinator_agents_md_template() -> Path | None:
     return None
 
 
-def setup_coordinator_directory() -> bool:
-    """Set up the coordinator directory with AGENTS.md.
+def find_coordinator_opencode_json_template() -> Path | None:
+    """Find the opencode.json template for the coordinator.
 
-    Copies the AGENTS.md template from the first found location,
-    otherwise creates a minimal version.
+    Search order:
+    1. Package contrib/coordinator/opencode.json
+    2. ~/.config/agent-hub-daemon/opencode.json (user override)
+    3. ~/.local/share/opencode-agent-hub/coordinator/opencode.json
+    4. /usr/local/share/opencode-agent-hub/coordinator/opencode.json
 
-    Template search order (see find_coordinator_agents_md_template):
-    1. Explicit config/env var path (COORDINATOR_AGENTS_MD)
-    2. ~/.config/agent-hub-daemon/AGENTS.md (user override)
-    3. ~/.config/agent-hub-daemon/COORDINATOR.md (alias)
-    4. Package contrib/coordinator/AGENTS.md
-    5. System share locations
+    Returns the first existing path, or None if no template found.
     """
-    COORDINATOR_DIR.mkdir(parents=True, exist_ok=True)
+    # 1. Package location (highest priority for consistency)
+    package_template = (
+        Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "opencode.json"
+    )
+    if package_template.exists():
+        return package_template
+
+    # 2. User config directory override
+    user_config_path = CONFIG_DIR / "opencode.json"
+    if user_config_path.exists():
+        return user_config_path
+
+    # 3-4. System locations
+    system_locations = [
+        Path.home() / ".local/share/opencode-agent-hub/coordinator/opencode.json",
+        Path("/usr/local/share/opencode-agent-hub/coordinator/opencode.json"),
+    ]
+
+    for path in system_locations:
+        if path.exists():
+            return path
+
+    return None
+
+
+def session_has_blocking_permissions(session: dict) -> bool:
+    """Check if a session has blocking permissions that prevent message injection.
+
+    A session is blocking if it has a permission rule that denies the "question"
+    permission with pattern "*". This prevents prompt_async injections from
+    being delivered.
+
+    Args:
+        session: Session dict from the OpenCode API containing 'permission' field.
+
+    Returns:
+        True if session has blocking permissions, False otherwise.
+    """
+    permissions = session.get("permission")
+    if not isinstance(permissions, list):
+        return False
+
+    for perm in permissions:
+        if not isinstance(perm, dict):
+            continue
+
+        permission_name = perm.get("permission", "")
+        pattern = perm.get("pattern", "")
+        action = perm.get("action", "")
+
+        # Check for question:deny which blocks prompt_async
+        if permission_name == "question" and pattern == "*" and action == "deny":
+            return True
+
+    return False
+
+
+def setup_coordinator_directory() -> bool:
+    """Set up the coordinator directory with AGENTS.md and opencode.json.
+
+    Files copied/overwritten:
+    - AGENTS.md: instructions for the coordinator agent (see find_coordinator_agents_md_template())
+    - opencode.json: permissions config for the coordinator (see find_coordinator_opencode_json_template())
+
+    Returns True if setup succeeded, False otherwise.
+    """
+    try:
+        COORDINATOR_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        log.error(f"Failed to create coordinator directory: {e}")
+        return False
+
+    # Always copy/overwrite opencode.json from template (REQUIRED)
+    opencode_json = COORDINATOR_DIR / "opencode.json"
+    json_template = find_coordinator_opencode_json_template()
+    if json_template is not None:
+        shutil.copy(json_template, opencode_json)
+        log.info(f"Copied coordinator opencode.json from {json_template}")
+    else:
+        log.error("No opencode.json template found for coordinator - cannot continue")
+        return False
+
+    # Handle AGENTS.md (create if missing)
     agents_md = COORDINATOR_DIR / "AGENTS.md"
 
-    if agents_md.exists():
-        return True
-
-    # Find and copy template
-    template = find_coordinator_agents_md_template()
-    if template is not None:
-        shutil.copy(template, agents_md)
-        log.info(f"Copied coordinator AGENTS.md from {template}")
-        return True
-
-    # Create minimal AGENTS.md if no template found
-    minimal_agents_md = """# Coordinator Agent
+    if not agents_md.exists():
+        # Find and copy template
+        template = find_coordinator_agents_md_template()
+        if template is not None:
+            shutil.copy(template, agents_md)
+            log.info(f"Copied coordinator AGENTS.md from {template}")
+        else:
+            # Create minimal AGENTS.md if no template found
+            minimal_agents_md = """# Coordinator Agent
 
 You are the coordinator for a multi-agent system. Your job is to facilitate collaboration.
 
@@ -1241,8 +1351,9 @@ You are the coordinator for a multi-agent system. Your job is to facilitate coll
 - Just facilitate introductions, don't micromanage
 - Let agents coordinate directly after introduction
 """
-    agents_md.write_text(minimal_agents_md)
-    log.info(f"Created minimal coordinator AGENTS.md at {agents_md}")
+            agents_md.write_text(minimal_agents_md)
+            log.info(f"Created minimal coordinator AGENTS.md at {agents_md}")
+
     return True
 
 
@@ -1270,20 +1381,75 @@ def _parse_session_id_from_json_output(stdout: bytes | None) -> str | None:
         return None
 
 
+def kill_all_coordinator_sessions() -> int:
+    """Kill all existing coordinator sessions on the hub server.
+
+    Returns the number of sessions killed.
+    """
+    sessions = get_sessions_uncached()
+    if sessions is None:
+        return 0
+
+    coordinator_title = _get_coordinator_title()
+    killed = 0
+    for session in sessions:
+        session_id = session.get("id")
+        title = session.get("title", "")
+
+        # Only kill coordinator sessions (exact title match)
+        if title != coordinator_title:
+            continue
+
+        if session_id:
+            log.info(f"Killing coordinator session {session_id[:8]} (title: {title})")
+            try:
+                resp = requests.delete(f"{OPENCODE_URL}/session/{session_id}", timeout=5)
+                if resp.status_code in (200, 204):
+                    log.info(f"Killed coordinator session {session_id[:8]}")
+                    killed += 1
+                else:
+                    log.warning(
+                        f"Failed to kill coordinator session {session_id[:8]}: "
+                        f"HTTP {resp.status_code}"
+                    )
+            except requests.RequestException as e:
+                log.warning(f"Failed to kill coordinator session: {e}")
+
+    return killed
+
+
 def find_coordinator_session() -> str | None:
     """Find the coordinator's session on the hub server.
 
-    Used as a recovery mechanism when COORDINATOR_SESSION_ID is not set
-    (e.g., after daemon restart when a coordinator session already exists
-    on a still-running hub). Matches by the well-known COORDINATOR_TITLE.
+    Checks for blocking permissions and raises PreflightError if found,
+    so the caller knows to kill the existing session and create a new one.
+
+    Returns the coordinator session ID if it exists and has valid permissions.
+    Returns None if no coordinator session exists.
+
+    Raises:
+        PreflightError: If coordinator session exists but has blocking permissions.
     """
     sessions = get_sessions_uncached()
     if sessions is None:
         return None
 
+    coordinator_title = _get_coordinator_title()
+
     for session in sessions:
-        if session.get("title") == COORDINATOR_TITLE:
-            return session.get("id")
+        title = session.get("title", "")
+        if title != coordinator_title:
+            continue
+
+        # Check for blocking permissions
+        if session_has_blocking_permissions(session):
+            session_id = session.get("id", "unknown")
+            raise PreflightError(
+                f"Coordinator session {session_id[:8]} has blocking permissions (question: deny). "
+                "This prevents message injection. The session must be recreated with correct permissions."
+            )
+
+        return session.get("id")
     return None
 
 
@@ -1314,82 +1480,121 @@ def start_coordinator() -> bool:
         log.error("Failed to set up coordinator directory")
         return False
 
-    # Check if coordinator session already exists on hub
-    existing_session = find_coordinator_session()
-    if existing_session:
-        COORDINATOR_SESSION_ID = existing_session
-        ORIENTED_SESSIONS.add(existing_session)  # Prevent phantom agent creation
-        log.info(f"Coordinator session already exists: {existing_session[:8]}")
-        return True
+    # Kill all existing coordinator sessions before starting a new one
+    killed = kill_all_coordinator_sessions()
+    if killed > 0:
+        log.info(f"Killed {killed} existing coordinator session(s)")
 
     log.info(f"Starting coordinator with model {COORDINATOR_MODEL}...")
 
-    # Find opencode binary
-    opencode_bin = shutil.which("opencode")
-    if not opencode_bin:
-        log.error("opencode binary not found in PATH")
-        return False
-
-    # Launch coordinator session via `opencode run --attach --format json`
-    # This creates a session on the hub server, sends the initial prompt,
-    # then exits. The session persists on the hub and accepts prompt_async
-    # injections. Using --format json lets us capture the session ID from
-    # the first JSON event's sessionID field.
+    # Create session via HTTP API instead of CLI to inherit global permissions
     try:
+        coordinator_title = _get_coordinator_title()
+        resp = requests.post(
+            f"{OPENCODE_URL}/session",
+            json={
+                "title": coordinator_title,
+                "directory": str(COORDINATOR_DIR),
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            log.error(f"Failed to create coordinator session via API: HTTP {resp.status_code}")
+            return False
+
+        session_data = resp.json()
+        session_id = session_data.get("id")
+        if not session_id:
+            log.error("API created session but no session ID returned")
+            return False
+
+        log.info(f"Created coordinator session via API: {session_id[:8]}")
+
+        # Now launch opencode run with --session to attach to existing session
+        opencode_bin = shutil.which("opencode")
+        if not opencode_bin:
+            log.error("opencode binary not found in PATH")
+            return False
+
         log_dir = Path.home() / ".local/share/agent-hub-daemon"
         log_dir.mkdir(parents=True, exist_ok=True)
         coord_stderr_path = log_dir / "coordinator-stderr.log"
+        coord_stdout_path = log_dir / "coordinator-stdout.log"
 
         cmd = [
             opencode_bin,
             "run",
+            "--session",
+            session_id,
             "--attach",
             OPENCODE_URL,
             "--model",
             COORDINATOR_MODEL,
-            "--title",
-            COORDINATOR_TITLE,
             "--format",
             "json",
             "--print-logs",
-            "You are the coordinator agent. Wait for NEW_AGENT notifications and facilitate collaboration between agents. Use agent-hub_sync to check current state.",
+            "You are the coordinator agent for the agent-hub. You will receive notifications about new agents joining. Use agent-hub_sync to check the hub state and agent-hub_send_message to communicate with agents.",
         ]
 
-        log.info(f"Running: {' '.join(cmd[:6])}...")
+        log.info(f"Attaching to session {session_id[:8]} via CLI...")
 
-        with open(coord_stderr_path, "a") as coord_stderr:  # noqa: SIM115
+        with (
+            open(coord_stderr_path, "a") as coord_stderr,  # noqa: SIM115
+            open(coord_stdout_path, "a") as coord_stdout,  # noqa: SIM115
+        ):
             result = subprocess.run(
                 cmd,
-                capture_output=False,
-                stdout=subprocess.PIPE,
-                stderr=coord_stderr,
+                capture_output=True,
                 cwd=str(COORDINATOR_DIR),
-                timeout=120,  # 2 minutes max for initial prompt
+                timeout=120,
             )
+            # Capture and log all stdout
+            if result.stdout:
+                stdout_text = result.stdout.decode("utf-8", errors="replace")
+                coord_stdout.write(stdout_text)
+                coord_stdout.flush()
+                for line in stdout_text.strip().split("\n"):
+                    if line:
+                        log.debug(f"Coordinator stdout: {line}")
+            # Capture and log all stderr
+            if result.stderr:
+                stderr_text = result.stderr.decode("utf-8", errors="replace")
+                coord_stderr.write(stderr_text)
+                coord_stderr.flush()
+                for line in stderr_text.strip().split("\n"):
+                    if line:
+                        log.debug(f"Coordinator stderr: {line}")
 
         if result.returncode != 0:
             log.error(f"Coordinator run exited with code {result.returncode}")
-            return False
+            # Don't delete the session - it exists, just the attach failed
+            # Return True so the daemon continues and can inject messages
+        COORDINATOR_SESSION_ID = session_id
+        ORIENTED_SESSIONS.add(session_id)
 
-        # Extract session ID from JSON output (first line has sessionID field)
-        session_id = _parse_session_id_from_json_output(result.stdout)
-        if session_id:
-            COORDINATOR_SESSION_ID = session_id
-            ORIENTED_SESSIONS.add(session_id)  # Prevent phantom agent creation
-            log.info(f"Coordinator session created: {session_id[:8]}")
-            return True
+        # Register coordinator as an agent so other agents can message it
+        coordinator_agent = {
+            "id": "coordinator",
+            "sessionId": session_id,
+            "projectPath": str(COORDINATOR_DIR),
+            "role": "Agent hub coordinator - facilitates collaboration between agents",
+            "capabilities": [
+                "agent-hub_send_message",
+                "agent-hub_sync",
+                "agent-hub_get_hub_status",
+            ],
+            "collaboratesWith": [],
+            "status": "active",
+            "lastSeen": int(time.time() * 1000),
+        }
+        # Write agent file directly
+        AGENTS_DIR.mkdir(parents=True, exist_ok=True)
+        agent_file = AGENTS_DIR / "coordinator.json"
+        agent_file.write_text(json.dumps(coordinator_agent, indent=2))
+        log.info("Registered coordinator as agent 'coordinator'")
 
-        # Fallback: search hub for coordinator session by title
-        log.warning("Could not parse session ID from coordinator output, searching hub...")
-        session_id = find_coordinator_session()
-        if session_id:
-            COORDINATOR_SESSION_ID = session_id
-            ORIENTED_SESSIONS.add(session_id)  # Prevent phantom agent creation
-            log.info(f"Coordinator session found by title: {session_id[:8]}")
-            return True
-
-        log.error("Coordinator run completed but session not found")
-        return False
+        log.info(f"Coordinator session ready: {session_id[:8]}")
+        return True
 
     except subprocess.TimeoutExpired:
         log.error("Coordinator initial prompt timed out after 120s")
@@ -1400,17 +1605,32 @@ def start_coordinator() -> bool:
 
 
 def stop_coordinator() -> None:
-    """Clear coordinator session tracking.
+    """Stop the coordinator session.
 
-    The coordinator session lives on the hub server, not as a local process.
-    It is destroyed when the hub server shuts down. This function just clears
-    the daemon's tracking state.
+    Kills the coordinator session on the hub server via API call.
     """
     global COORDINATOR_SESSION_ID
 
     if COORDINATOR_SESSION_ID is not None:
-        log.info(f"Clearing coordinator session: {COORDINATOR_SESSION_ID[:8]}")
+        log.info(f"Stopping coordinator session: {COORDINATOR_SESSION_ID[:8]}")
+        try:
+            resp = requests.delete(f"{OPENCODE_URL}/session/{COORDINATOR_SESSION_ID}", timeout=5)
+            if resp.status_code in (200, 204):
+                log.info(f"Killed coordinator session {COORDINATOR_SESSION_ID[:8]}")
+            else:
+                log.warning(f"Failed to kill coordinator session: HTTP {resp.status_code}")
+        except Exception as e:
+            log.warning(f"Failed to kill coordinator session: {e}")
         COORDINATOR_SESSION_ID = None
+
+        # Clean up coordinator agent file
+        try:
+            agent_file = AGENTS_DIR / "coordinator.json"
+            if agent_file.exists():
+                agent_file.unlink()
+                log.info("Removed coordinator agent registration")
+        except Exception as e:
+            log.warning(f"Failed to remove coordinator agent file: {e}")
 
 
 def notify_coordinator_new_agent(agent_id: str, directory: str) -> None:
@@ -2004,6 +2224,11 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     if session_id in ORIENTED_SESSIONS:
         return  # Already oriented
 
+    # Skip coordinator session - mark as oriented but don't create agent
+    if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
+        ORIENTED_SESSIONS.add(session_id)
+        return
+
     # Only orient sessions created AFTER daemon started OR updated recently
     created_ms = session.get("time", {}).get("created", 0)
     updated_ms = session.get("time", {}).get("updated", 0)
@@ -2018,13 +2243,8 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     if not directory:
         return
 
-    # Skip coordinator session — it should not get an agent identity
-    if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
-        ORIENTED_SESSIONS.add(session_id)
-        log.debug(f"Skipping coordinator session {session_id[:8]} in file watcher")
-        return
-
     # Get or auto-create agent for this session (unique per session)
+    # Note: Coordinator also registers as an agent so it can receive messages
     agent = get_or_create_agent_for_session(session, agents)
     log.info(f"File watcher: new session {session_id[:8]}, orienting as {agent.get('id')}")
     orient_session(session_id, agent, agents)
@@ -2051,6 +2271,11 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
         if not session_id or session_id in ORIENTED_SESSIONS:
             continue
 
+        # Skip coordinator session - mark as oriented but don't create agent
+        if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
+            ORIENTED_SESSIONS.add(session_id)
+            continue
+
         # Only orient sessions created AFTER daemon started OR updated recently
         created_ms = session.get("time", {}).get("created", 0)
         updated_ms = session.get("time", {}).get("updated", 0)
@@ -2064,13 +2289,8 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
         if not directory:
             continue
 
-        # Skip coordinator session — it should not get an agent identity
-        if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
-            ORIENTED_SESSIONS.add(session_id)
-            log.debug(f"Skipping coordinator session {session_id[:8]} in poller")
-            continue
-
         # Get or auto-create agent for this session (unique per session)
+        # Note: Coordinator also registers as an agent so it can receive messages
         agent = get_or_create_agent_for_session(session, agents)
         log.info(f"New session {session_id[:8]} orienting as {agent.get('id')}")
         orient_session(session_id, agent, agents)
@@ -2493,7 +2713,9 @@ Examples:
     start_hub_server()
 
     # Start coordinator (after hub server is ready)
-    start_coordinator()
+    if not start_coordinator():
+        log.error("Failed to start coordinator - daemon cannot function without it")
+        sys.exit(1)
 
     # Shared agents dict - updated by AgentHandler
     agents = load_agents()
@@ -2567,17 +2789,12 @@ Examples:
     def coordinator_monitor():
         """Background thread to monitor coordinator session on hub server."""
         while not shutdown_event.is_set():
-            if COORDINATOR_ENABLED:
-                if COORDINATOR_SESSION_ID is None:
-                    # Coordinator not started yet or failed to start
-                    log.info("Coordinator session not found, starting...")
-                    start_coordinator()
-                else:
-                    # Verify session still exists on hub
-                    session = find_coordinator_session()
-                    if session is None:
-                        log.warning("Coordinator session disappeared from hub, restarting...")
-                        start_coordinator()
+            if COORDINATOR_ENABLED and COORDINATOR_SESSION_ID is not None:
+                # Verify session still exists on hub
+                session = find_coordinator_session()
+                if session is None:
+                    log.warning("Coordinator session disappeared from hub")
+                    # Note: We don't restart - coordinator is only created at daemon startup
             shutdown_event.wait(30)  # Check every 30 seconds
 
     def metrics_worker():
