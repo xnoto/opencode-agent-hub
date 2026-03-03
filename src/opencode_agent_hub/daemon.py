@@ -244,6 +244,7 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # COORDINATOR_PRESERVE_LOCAL_AGENTS_MD: Keep existing coordinator AGENTS.md (default: false)
 # COORDINATOR_READY_TIMEOUT_SECONDS: Wait for READY after bootstrap (default: 20)
 # COORDINATOR_STRICT_READY: Require exact READY (default: false)
+# COORDINATOR_BOOTSTRAP_REQUIRED: Fail daemon startup if coordinator bootstrap is not ready (default: false)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
 COORDINATOR_ENABLED = bool(
@@ -279,6 +280,15 @@ COORDINATOR_STRICT_READY = bool(
     _get_config_value(
         "AGENT_HUB_COORDINATOR_STRICT_READY",
         ["coordinator", "strict_ready"],
+        False,
+        _CONFIG,
+        bool,
+    )
+)
+COORDINATOR_BOOTSTRAP_REQUIRED = bool(
+    _get_config_value(
+        "AGENT_HUB_COORDINATOR_BOOTSTRAP_REQUIRED",
+        ["coordinator", "bootstrap_required"],
         False,
         _CONFIG,
         bool,
@@ -1733,17 +1743,20 @@ def start_coordinator() -> bool:
         if not _wait_for_coordinator_ready(
             session_id, COORDINATOR_READY_TIMEOUT_SECONDS, after_ms=ready_after_ms
         ):
-            log.error(
+            msg = (
                 "Coordinator did not become ready after bootstrap "
                 f"within {COORDINATOR_READY_TIMEOUT_SECONDS}s"
             )
-            with suppress(requests.RequestException):
-                requests.delete(f"{OPENCODE_URL}/session/{session_id}", timeout=5)
-            COORDINATOR_SESSION_ID = None
-            ORIENTED_SESSIONS.discard(session_id)
-            if agent_file.exists():
-                agent_file.unlink()
-            return False
+            if COORDINATOR_BOOTSTRAP_REQUIRED:
+                log.error(msg)
+                with suppress(requests.RequestException):
+                    requests.delete(f"{OPENCODE_URL}/session/{session_id}", timeout=5)
+                COORDINATOR_SESSION_ID = None
+                ORIENTED_SESSIONS.discard(session_id)
+                if agent_file.exists():
+                    agent_file.unlink()
+                return False
+            log.warning(f"{msg}; continuing with coordinator in best-effort mode")
 
         log.info(f"Coordinator session ready: {session_id[:8]}")
         return True

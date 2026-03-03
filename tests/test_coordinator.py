@@ -696,18 +696,60 @@ def test_start_coordinator_fails_when_setup_fails() -> None:
         daemon.COORDINATOR_ENABLED = original_enabled
 
 
-def test_start_coordinator_fails_when_ready_not_acknowledged() -> None:
-    """Verify start_coordinator fails when READY acknowledgement is missing."""
+def test_start_coordinator_continues_when_ready_not_acknowledged() -> None:
+    """Verify start_coordinator continues in best-effort mode without readiness ack."""
     from opencode_agent_hub import daemon
 
     original_session_id = daemon.COORDINATOR_SESSION_ID
     original_enabled = daemon.COORDINATOR_ENABLED
     original_oriented = daemon.ORIENTED_SESSIONS.copy()
+    original_required = daemon.COORDINATOR_BOOTSTRAP_REQUIRED
 
     try:
         daemon.COORDINATOR_SESSION_ID = None
         daemon.COORDINATOR_ENABLED = True
         daemon.ORIENTED_SESSIONS = set()
+        daemon.COORDINATOR_BOOTSTRAP_REQUIRED = False
+
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "ses_not_ready"}
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
+            mock.patch.object(daemon, "kill_all_coordinator_sessions", return_value=0),
+            mock.patch("requests.post", return_value=mock_response),
+            mock.patch.object(daemon, "inject_message_sync", return_value=True),
+            mock.patch.object(daemon, "_wait_for_coordinator_ready", return_value=False),
+            mock.patch.object(daemon, "AGENTS_DIR", Path(tmpdir) / "agents"),
+        ):
+            result = daemon.start_coordinator()
+
+        assert result is True
+        assert daemon.COORDINATOR_SESSION_ID == "ses_not_ready"
+        assert "ses_not_ready" in daemon.ORIENTED_SESSIONS
+    finally:
+        daemon.COORDINATOR_SESSION_ID = original_session_id
+        daemon.COORDINATOR_ENABLED = original_enabled
+        daemon.ORIENTED_SESSIONS = original_oriented
+        daemon.COORDINATOR_BOOTSTRAP_REQUIRED = original_required
+
+
+def test_start_coordinator_fails_when_bootstrap_required_and_not_ready() -> None:
+    """Verify start_coordinator fails when readiness is required and missing."""
+    from opencode_agent_hub import daemon
+
+    original_session_id = daemon.COORDINATOR_SESSION_ID
+    original_enabled = daemon.COORDINATOR_ENABLED
+    original_oriented = daemon.ORIENTED_SESSIONS.copy()
+    original_required = daemon.COORDINATOR_BOOTSTRAP_REQUIRED
+
+    try:
+        daemon.COORDINATOR_SESSION_ID = None
+        daemon.COORDINATOR_ENABLED = True
+        daemon.ORIENTED_SESSIONS = set()
+        daemon.COORDINATOR_BOOTSTRAP_REQUIRED = True
 
         mock_response = mock.MagicMock()
         mock_response.status_code = 200
@@ -733,6 +775,7 @@ def test_start_coordinator_fails_when_ready_not_acknowledged() -> None:
         daemon.COORDINATOR_SESSION_ID = original_session_id
         daemon.COORDINATOR_ENABLED = original_enabled
         daemon.ORIENTED_SESSIONS = original_oriented
+        daemon.COORDINATOR_BOOTSTRAP_REQUIRED = original_required
 
 
 def test_notify_coordinator_new_agent_retries_when_no_activity() -> None:
