@@ -1,1 +1,3 @@
 contrib/systemd/agent-hub-daemon.service usr/lib/systemd/user/
+contrib/coordinator/opencode.json usr/share/opencode-agent-hub/coordinator/
+contrib/coordinator/AGENTS.md usr/share/opencode-agent-hub/coordinator/
