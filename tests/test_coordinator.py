@@ -230,8 +230,8 @@ def test_setup_coordinator_directory_creates_minimal_when_no_template() -> None:
             daemon.find_coordinator_agents_md_template = original_find
 
 
-def test_setup_coordinator_directory_skips_if_exists() -> None:
-    """Verify setup_coordinator_directory skips if AGENTS.md already exists."""
+def test_setup_coordinator_directory_overwrites_if_exists_by_default() -> None:
+    """Verify setup_coordinator_directory overwrites stale AGENTS.md by default."""
     from opencode_agent_hub import daemon
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -248,18 +248,59 @@ def test_setup_coordinator_directory_skips_if_exists() -> None:
 
         original_config_dir = daemon.CONFIG_DIR
         original_coord_dir = daemon.COORDINATOR_DIR
+        original_preserve = daemon.COORDINATOR_PRESERVE_LOCAL_AGENTS_MD
         daemon.CONFIG_DIR = config_dir
         daemon.COORDINATOR_DIR = coord_dir
+        daemon.COORDINATOR_PRESERVE_LOCAL_AGENTS_MD = False
+
+        template_agents = config_dir / "AGENTS.md"
+        template_agents.write_text("# Fresh template")
 
         try:
             result = daemon.setup_coordinator_directory()
             assert result is True
 
-            # Verify content was NOT overwritten
-            assert existing.read_text() == "# Existing content - should not be overwritten"
+            # Verify stale content was overwritten
+            assert existing.read_text() == "# Fresh template"
         finally:
             daemon.CONFIG_DIR = original_config_dir
             daemon.COORDINATOR_DIR = original_coord_dir
+            daemon.COORDINATOR_PRESERVE_LOCAL_AGENTS_MD = original_preserve
+
+
+def test_setup_coordinator_directory_preserves_when_configured() -> None:
+    """Verify setup_coordinator_directory preserves AGENTS.md when configured."""
+    from opencode_agent_hub import daemon
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_dir = Path(tmpdir) / "config"
+        config_dir.mkdir()
+        coord_dir = Path(tmpdir) / "coordinator"
+        coord_dir.mkdir()
+        existing = coord_dir / "AGENTS.md"
+        existing.write_text("# Existing content - should be preserved")
+
+        # Create templates
+        opencode_json = config_dir / "opencode.json"
+        opencode_json.write_text('{"permission": []}')
+        template_agents = config_dir / "AGENTS.md"
+        template_agents.write_text("# Fresh template")
+
+        original_config_dir = daemon.CONFIG_DIR
+        original_coord_dir = daemon.COORDINATOR_DIR
+        original_preserve = daemon.COORDINATOR_PRESERVE_LOCAL_AGENTS_MD
+        daemon.CONFIG_DIR = config_dir
+        daemon.COORDINATOR_DIR = coord_dir
+        daemon.COORDINATOR_PRESERVE_LOCAL_AGENTS_MD = True
+
+        try:
+            result = daemon.setup_coordinator_directory()
+            assert result is True
+            assert existing.read_text() == "# Existing content - should be preserved"
+        finally:
+            daemon.CONFIG_DIR = original_config_dir
+            daemon.COORDINATOR_DIR = original_coord_dir
+            daemon.COORDINATOR_PRESERVE_LOCAL_AGENTS_MD = original_preserve
 
 
 # =============================================================================
@@ -502,8 +543,8 @@ def test_orient_session_no_coordinator_id_does_not_skip() -> None:
 # =============================================================================
 
 
-def test_start_coordinator_captures_session_id_from_json() -> None:
-    """Verify start_coordinator extracts session ID from JSON output."""
+def test_start_coordinator_registers_session_and_queues_bootstrap() -> None:
+    """Verify start_coordinator registers coordinator and queues bootstrap prompt."""
     from opencode_agent_hub import daemon
 
     original_session_id = daemon.COORDINATOR_SESSION_ID
@@ -514,48 +555,36 @@ def test_start_coordinator_captures_session_id_from_json() -> None:
         daemon.COORDINATOR_SESSION_ID = None
         daemon.COORDINATOR_ENABLED = True
         daemon.ORIENTED_SESSIONS = set()
-
-        json_output = json.dumps(
-            {
-                "type": "step_start",
-                "sessionID": "ses_newcoord123",
-                "part": {},
-            }
-        ).encode()
-
-        mock_result = mock.MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = json_output
-        mock_result.stderr = b""
-
-        mock_file = mock.MagicMock()
 
         # Mock HTTP response for session creation
         mock_response = mock.MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"id": "ses_newcoord123"}
 
-        with (
-            mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
-            mock.patch.object(daemon, "get_sessions_uncached", return_value=[]),
-            mock.patch("requests.post", return_value=mock_response),
-            mock.patch("shutil.which", return_value="/usr/bin/opencode"),
-            mock.patch("subprocess.run", return_value=mock_result),
-            mock.patch("builtins.open", return_value=mock_file),
-        ):
-            result = daemon.start_coordinator()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agents_dir = Path(tmpdir) / "agents"
+
+            with (
+                mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
+                mock.patch.object(daemon, "kill_all_coordinator_sessions", return_value=0),
+                mock.patch("requests.post", return_value=mock_response),
+                mock.patch.object(daemon, "inject_message") as mock_inject,
+                mock.patch.object(daemon, "AGENTS_DIR", agents_dir),
+            ):
+                result = daemon.start_coordinator()
 
         assert result is True
         assert daemon.COORDINATOR_SESSION_ID == "ses_newcoord123"
         assert "ses_newcoord123" in daemon.ORIENTED_SESSIONS
+        mock_inject.assert_called_once_with("ses_newcoord123", daemon.COORDINATOR_BOOTSTRAP_PROMPT)
     finally:
         daemon.COORDINATOR_SESSION_ID = original_session_id
         daemon.COORDINATOR_ENABLED = original_enabled
         daemon.ORIENTED_SESSIONS = original_oriented
 
 
-def test_start_coordinator_fallback_to_title_search() -> None:
-    """Verify start_coordinator falls back to title search when JSON parse fails."""
+def test_start_coordinator_returns_false_on_api_error() -> None:
+    """Verify start_coordinator fails when session creation API fails."""
     from opencode_agent_hub import daemon
 
     original_session_id = daemon.COORDINATOR_SESSION_ID
@@ -567,31 +596,18 @@ def test_start_coordinator_fallback_to_title_search() -> None:
         daemon.COORDINATOR_ENABLED = True
         daemon.ORIENTED_SESSIONS = set()
 
-        mock_result = mock.MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = b""  # Empty output, can't parse
-        mock_result.stderr = b""
-
-        mock_file = mock.MagicMock()
-
-        # Mock HTTP response for session creation
         mock_response = mock.MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "ses_fallback_456"}
+        mock_response.status_code = 500
 
         with (
             mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
-            mock.patch.object(daemon, "get_sessions_uncached", return_value=[]),
+            mock.patch.object(daemon, "kill_all_coordinator_sessions", return_value=0),
             mock.patch("requests.post", return_value=mock_response),
-            mock.patch("shutil.which", return_value="/usr/bin/opencode"),
-            mock.patch("subprocess.run", return_value=mock_result),
-            mock.patch("builtins.open", return_value=mock_file),
         ):
             result = daemon.start_coordinator()
 
-        assert result is True
-        assert daemon.COORDINATOR_SESSION_ID == "ses_fallback_456"
-        assert "ses_fallback_456" in daemon.ORIENTED_SESSIONS
+        assert result is False
+        assert daemon.COORDINATOR_SESSION_ID is None
     finally:
         daemon.COORDINATOR_SESSION_ID = original_session_id
         daemon.COORDINATOR_ENABLED = original_enabled
@@ -616,26 +632,22 @@ def test_start_coordinator_reuses_existing_session() -> None:
         mock_post_response.status_code = 200
         mock_post_response.json.return_value = {"id": "ses_new_789"}
 
-        mock_result = mock.MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = b""
-        mock_result.stderr = b""
-
-        mock_file = mock.MagicMock()
-
         with (
+            tempfile.TemporaryDirectory() as tmpdir,
             mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
-            mock.patch.object(daemon, "get_sessions_uncached", return_value=[]),
+            mock.patch.object(
+                daemon, "kill_all_coordinator_sessions", return_value=1
+            ) as mock_killed,
             mock.patch("requests.post", return_value=mock_post_response),
-            mock.patch("shutil.which", return_value="/usr/bin/opencode"),
-            mock.patch("subprocess.run", return_value=mock_result),
-            mock.patch("builtins.open", return_value=mock_file),
+            mock.patch.object(daemon, "inject_message"),
+            mock.patch.object(daemon, "AGENTS_DIR", Path(tmpdir) / "agents"),
         ):
             result = daemon.start_coordinator()
 
         assert result is True
         assert daemon.COORDINATOR_SESSION_ID == "ses_new_789"
         assert "ses_new_789" in daemon.ORIENTED_SESSIONS
+        mock_killed.assert_called_once()
     finally:
         daemon.COORDINATOR_SESSION_ID = original_session_id
         daemon.COORDINATOR_ENABLED = original_enabled
@@ -657,8 +669,8 @@ def test_start_coordinator_disabled() -> None:
         daemon.COORDINATOR_ENABLED = original_enabled
 
 
-def test_start_coordinator_nonzero_exit() -> None:
-    """Verify start_coordinator returns False on non-zero exit code."""
+def test_start_coordinator_fails_when_setup_fails() -> None:
+    """Verify start_coordinator returns False when setup fails."""
     from opencode_agent_hub import daemon
 
     original_session_id = daemon.COORDINATOR_SESSION_ID
@@ -668,16 +680,7 @@ def test_start_coordinator_nonzero_exit() -> None:
         daemon.COORDINATOR_SESSION_ID = None
         daemon.COORDINATOR_ENABLED = True
 
-        mock_result = mock.MagicMock()
-        mock_result.returncode = 1
-        mock_result.stdout = b""
-
-        with (
-            mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
-            mock.patch.object(daemon, "find_coordinator_session", return_value=None),
-            mock.patch("shutil.which", return_value="/usr/bin/opencode"),
-            mock.patch("subprocess.run", return_value=mock_result),
-        ):
+        with mock.patch.object(daemon, "setup_coordinator_directory", return_value=False):
             result = daemon.start_coordinator()
 
         assert result is False

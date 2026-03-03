@@ -240,6 +240,7 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # The coordinator is a dedicated OpenCode session that facilitates agent collaboration
 # COORDINATOR_ENABLED: Enable the coordinator agent (default: true)
 # COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/minimax-m2.5-free)
+# COORDINATOR_PRESERVE_LOCAL_AGENTS_MD: Keep existing coordinator AGENTS.md (default: false)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
 COORDINATOR_ENABLED = bool(
@@ -251,6 +252,15 @@ COORDINATOR_MODEL = str(
         ["coordinator", "model"],
         "opencode/minimax-m2.5-free",
         _CONFIG,
+    )
+)
+COORDINATOR_PRESERVE_LOCAL_AGENTS_MD = bool(
+    _get_config_value(
+        "AGENT_HUB_COORDINATOR_PRESERVE_LOCAL_AGENTS_MD",
+        ["coordinator", "preserve_local_agents_md"],
+        False,
+        _CONFIG,
+        bool,
     )
 )
 _coordinator_dir_str = str(
@@ -287,6 +297,19 @@ def _get_coordinator_title() -> str:
     Returns the title to use for coordinator session creation.
     """
     return COORDINATOR_TITLE_BASE
+
+
+COORDINATOR_BOOTSTRAP_PROMPT = (
+    "Initialize as the coordinator for agent-hub in a non-interactive session. "
+    "Never ask the human user questions and never call the question tool. "
+    "Follow AGENTS.md exactly. Reply once with exactly READY and then wait for NEW_AGENT messages."
+)
+
+
+def _is_running_from_source() -> bool:
+    """Return True when daemon is running from a source checkout."""
+    repo_root = Path(__file__).parent.parent.parent
+    return (repo_root / "pyproject.toml").exists() and (repo_root / "contrib").exists()
 
 
 # Coordinator cost estimation pricing (per token, NOT per million tokens)
@@ -1191,11 +1214,11 @@ def find_coordinator_agents_md_template() -> Path | None:
     1. Explicit config/env var path (COORDINATOR_AGENTS_MD)
     2. ~/.config/agent-hub-daemon/AGENTS.md (user override)
     3. ~/.config/agent-hub-daemon/COORDINATOR.md (alias)
-    4. importlib.resources (pip/PyPI package data)
-    5. /usr/share/opencode-agent-hub/coordinator/AGENTS.md (system packages: deb, rpm)
-    6. /usr/local/share/opencode-agent-hub/coordinator/AGENTS.md (local install)
-    7. ~/.local/share/opencode-agent-hub/coordinator/AGENTS.md (user local)
-    8. Development: repo contrib/ directory
+    4. Development: repo contrib/ directory (when running from source)
+    5. importlib.resources (pip/PyPI package data)
+    6. /usr/share/opencode-agent-hub/coordinator/AGENTS.md (system packages: deb, rpm)
+    7. /usr/local/share/opencode-agent-hub/coordinator/AGENTS.md (local install)
+    8. ~/.local/share/opencode-agent-hub/coordinator/AGENTS.md (user local)
 
     Returns the first existing path, or None if no template found.
     """
@@ -1217,7 +1240,13 @@ def find_coordinator_agents_md_template() -> Path | None:
         if path.exists():
             return path
 
-    # 4. importlib.resources - works with pip/PyPI installs
+    # 4. Development: repo contrib/ directory (when running from source)
+    if _is_running_from_source():
+        dev_template = Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "AGENTS.md"
+        if dev_template.exists():
+            return dev_template
+
+    # 5. importlib.resources - works with pip/PyPI installs
     try:
         import opencode_agent_hub
 
@@ -1227,7 +1256,7 @@ def find_coordinator_agents_md_template() -> Path | None:
     except (ImportError, TypeError):
         pass
 
-    # 5-8. System locations (FHS-compliant + Homebrew)
+    # 6-8. System locations (FHS-compliant + Homebrew)
     system_locations = [
         Path("/usr/share/opencode-agent-hub/coordinator/AGENTS.md"),  # deb, rpm
         Path(
@@ -1243,11 +1272,6 @@ def find_coordinator_agents_md_template() -> Path | None:
         if path.exists():
             return path
 
-    # 8. Development: repo contrib/ directory (when running from source)
-    dev_template = Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "AGENTS.md"
-    if dev_template.exists():
-        return dev_template
-
     return None
 
 
@@ -1256,11 +1280,11 @@ def find_coordinator_opencode_json_template() -> Path | None:
 
     Search order:
     1. ~/.config/agent-hub-daemon/opencode.json (user override - highest priority)
-    2. importlib.resources (pip/PyPI package data)
-    3. /usr/share/opencode-agent-hub/coordinator/opencode.json (system packages: deb, rpm)
-    4. /usr/local/share/opencode-agent-hub/coordinator/opencode.json (local install)
-    5. ~/.local/share/opencode-agent-hub/coordinator/opencode.json (user local)
-    6. Development: repo contrib/ directory
+    2. Development: repo contrib/ directory (when running from source)
+    3. importlib.resources (pip/PyPI package data)
+    4. /usr/share/opencode-agent-hub/coordinator/opencode.json (system packages: deb, rpm)
+    5. /usr/local/share/opencode-agent-hub/coordinator/opencode.json (local install)
+    6. ~/.local/share/opencode-agent-hub/coordinator/opencode.json (user local)
 
     Returns the first existing path, or None if no template found.
     """
@@ -1269,7 +1293,15 @@ def find_coordinator_opencode_json_template() -> Path | None:
     if user_config_path.exists():
         return user_config_path
 
-    # 2. importlib.resources - works with pip/PyPI installs
+    # 2. Development: repo contrib/ directory (when running from source)
+    if _is_running_from_source():
+        dev_template = (
+            Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "opencode.json"
+        )
+        if dev_template.exists():
+            return dev_template
+
+    # 3. importlib.resources - works with pip/PyPI installs
     try:
         import opencode_agent_hub
 
@@ -1279,7 +1311,7 @@ def find_coordinator_opencode_json_template() -> Path | None:
     except (ImportError, TypeError):
         pass
 
-    # 3-6. System locations (FHS-compliant + Homebrew)
+    # 4-6. System locations (FHS-compliant + Homebrew)
     system_locations = [
         Path("/usr/share/opencode-agent-hub/coordinator/opencode.json"),  # deb, rpm
         Path(
@@ -1294,11 +1326,6 @@ def find_coordinator_opencode_json_template() -> Path | None:
     for path in system_locations:
         if path.exists():
             return path
-
-    # 6. Development: repo contrib/ directory (when running from source)
-    dev_template = Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "opencode.json"
-    if dev_template.exists():
-        return dev_template
 
     return None
 
@@ -1360,18 +1387,21 @@ def setup_coordinator_directory() -> bool:
         log.error("No opencode.json template found for coordinator - cannot continue")
         return False
 
-    # Handle AGENTS.md (create if missing)
+    # Handle AGENTS.md (overwrite by default to avoid stale coordinator behavior)
     agents_md = COORDINATOR_DIR / "AGENTS.md"
 
-    if not agents_md.exists():
-        # Find and copy template
-        template = find_coordinator_agents_md_template()
-        if template is not None:
-            shutil.copy(template, agents_md)
-            log.info(f"Copied coordinator AGENTS.md from {template}")
-        else:
-            # Create minimal AGENTS.md if no template found
-            minimal_agents_md = """# Coordinator Agent
+    if agents_md.exists() and COORDINATOR_PRESERVE_LOCAL_AGENTS_MD:
+        log.info(f"Preserving existing coordinator AGENTS.md at {agents_md}")
+        return True
+
+    # Find and copy template
+    template = find_coordinator_agents_md_template()
+    if template is not None:
+        shutil.copy(template, agents_md)
+        log.info(f"Copied coordinator AGENTS.md from {template}")
+    else:
+        # Create minimal AGENTS.md if no template found
+        minimal_agents_md = """# Coordinator Agent
 
 You are the coordinator for a multi-agent system. Your job is to facilitate collaboration.
 
@@ -1392,8 +1422,8 @@ You are the coordinator for a multi-agent system. Your job is to facilitate coll
 - Just facilitate introductions, don't micromanage
 - Let agents coordinate directly after introduction
 """
-            agents_md.write_text(minimal_agents_md)
-            log.info(f"Created minimal coordinator AGENTS.md at {agents_md}")
+        agents_md.write_text(minimal_agents_md)
+        log.info(f"Created minimal coordinator AGENTS.md at {agents_md}")
 
     return True
 
@@ -1497,16 +1527,9 @@ def find_coordinator_session() -> str | None:
 def start_coordinator() -> bool:
     """Start the coordinator OpenCode session.
 
-    The coordinator is a dedicated agent that facilitates collaboration
-    between worker agents by:
-    - Capturing what each agent is working on
-    - Matching agents with related tasks
-    - Facilitating introductions
-
-    Uses `opencode run --attach` to create a persistent session on the hub
-    server. The `run` process exits after the initial prompt is processed,
-    but the session remains alive on the hub server and can receive
-    injected messages via prompt_async.
+    Coordinator startup is intentionally non-blocking: we create the session,
+    register it as an agent, and queue the bootstrap prompt asynchronously.
+    This avoids daemon startup failures caused by long-running model responses.
 
     Returns True if coordinator session is ready, False otherwise.
     """
@@ -1551,65 +1574,6 @@ def start_coordinator() -> bool:
 
         log.info(f"Created coordinator session via API: {session_id[:8]}")
 
-        # Now launch opencode run with --session to attach to existing session
-        opencode_bin = shutil.which("opencode")
-        if not opencode_bin:
-            log.error("opencode binary not found in PATH")
-            return False
-
-        log_dir = Path.home() / ".local/share/agent-hub-daemon"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        coord_stderr_path = log_dir / "coordinator-stderr.log"
-        coord_stdout_path = log_dir / "coordinator-stdout.log"
-
-        cmd = [
-            opencode_bin,
-            "run",
-            "--session",
-            session_id,
-            "--attach",
-            OPENCODE_URL,
-            "--model",
-            COORDINATOR_MODEL,
-            "--format",
-            "json",
-            "--print-logs",
-            "You are the coordinator agent for the agent-hub. You will receive notifications about new agents joining. Use agent-hub_sync to check the hub state and agent-hub_send_message to communicate with agents.",
-        ]
-
-        log.info(f"Attaching to session {session_id[:8]} via CLI...")
-
-        with (
-            open(coord_stderr_path, "a") as coord_stderr,  # noqa: SIM115
-            open(coord_stdout_path, "a") as coord_stdout,  # noqa: SIM115
-        ):
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                cwd=str(COORDINATOR_DIR),
-                timeout=120,
-            )
-            # Capture and log all stdout
-            if result.stdout:
-                stdout_text = result.stdout.decode("utf-8", errors="replace")
-                coord_stdout.write(stdout_text)
-                coord_stdout.flush()
-                for line in stdout_text.strip().split("\n"):
-                    if line:
-                        log.debug(f"Coordinator stdout: {line}")
-            # Capture and log all stderr
-            if result.stderr:
-                stderr_text = result.stderr.decode("utf-8", errors="replace")
-                coord_stderr.write(stderr_text)
-                coord_stderr.flush()
-                for line in stderr_text.strip().split("\n"):
-                    if line:
-                        log.debug(f"Coordinator stderr: {line}")
-
-        if result.returncode != 0:
-            log.error(f"Coordinator run exited with code {result.returncode}")
-            # Don't delete the session - it exists, just the attach failed
-            # Return True so the daemon continues and can inject messages
         COORDINATOR_SESSION_ID = session_id
         ORIENTED_SESSIONS.add(session_id)
 
@@ -1634,12 +1598,13 @@ def start_coordinator() -> bool:
         agent_file.write_text(json.dumps(coordinator_agent, indent=2))
         log.info("Registered coordinator as agent 'coordinator'")
 
+        # Queue bootstrap prompt without blocking daemon startup.
+        inject_message(session_id, COORDINATOR_BOOTSTRAP_PROMPT)
+        log.info(f"Queued coordinator bootstrap prompt for session {session_id[:8]}")
+
         log.info(f"Coordinator session ready: {session_id[:8]}")
         return True
 
-    except subprocess.TimeoutExpired:
-        log.error("Coordinator initial prompt timed out after 120s")
-        return False
     except Exception as e:
         log.error(f"Failed to start coordinator: {e}")
         return False

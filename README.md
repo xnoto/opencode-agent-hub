@@ -529,12 +529,15 @@ Rate-limited messages are archived with `rateLimited: true` for debugging.
 
 The coordinator is a dedicated OpenCode session that facilitates **initial** agent introductions, then steps back.
 
+Coordinator startup is non-blocking: the daemon creates the session and queues bootstrap instructions asynchronously so daemon startup does not depend on model response time.
+
 Configuration via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_HUB_COORDINATOR` | `true` | Enable the coordinator agent (`true`, `1`, or `yes`) |
 | `AGENT_HUB_COORDINATOR_MODEL` | `opencode/minimax-m2.5-free` | OpenCode model for the coordinator session |
+| `AGENT_HUB_COORDINATOR_PRESERVE_LOCAL_AGENTS_MD` | `false` | Keep existing `~/.agent-hub/coordinator/AGENTS.md` instead of refreshing from template |
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom path to coordinator AGENTS.md |
 
