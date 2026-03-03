@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.2.1...v1.3.0) (2026-03-03)
+
+
+### Features
+
+* coordinator permissions and message delivery ([27b0d1d](https://github.com/xnoto/opencode-agent-hub/commit/27b0d1d9ec54192dace4bf4b46fc89e91f56a5f0))
+
+
+### Bug Fixes
+
+* coordinator permissions and message delivery ([#56](https://github.com/xnoto/opencode-agent-hub/issues/56)) ([7e9adbf](https://github.com/xnoto/opencode-agent-hub/commit/7e9adbfa35b1b69f0fd265454b3e1adb13edc49e))
+
 ## [1.2.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.2.0...v1.2.1) (2026-03-03)
 
 
