@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.1.1...v1.2.0) (2026-03-03)
+
+
+### Features
+
+* switch default coordinator model to MiniMax M2.5 free tier ([b2f9ae4](https://github.com/xnoto/opencode-agent-hub/commit/b2f9ae40d4c35d01fdae82517c0bbe815be76644))
+* switch default coordinator model to MiniMax M2.5 free tier ([db73d9e](https://github.com/xnoto/opencode-agent-hub/commit/db73d9ed15c9275e38cdfbb27d6081ecf1e75219))
+
 ## [1.1.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.1.0...v1.1.1) (2026-02-14)
 
 
