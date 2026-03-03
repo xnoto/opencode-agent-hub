@@ -538,6 +538,7 @@ Configuration via environment variables:
 | `AGENT_HUB_COORDINATOR` | `true` | Enable the coordinator agent (`true`, `1`, or `yes`) |
 | `AGENT_HUB_COORDINATOR_MODEL` | `opencode/minimax-m2.5-free` | OpenCode model for the coordinator session |
 | `AGENT_HUB_COORDINATOR_PRESERVE_LOCAL_AGENTS_MD` | `false` | Keep existing `~/.agent-hub/coordinator/AGENTS.md` instead of refreshing from template |
+| `AGENT_HUB_COORDINATOR_READY_TIMEOUT` | `20` | Max seconds to wait for coordinator bootstrap `READY` acknowledgment |
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom path to coordinator AGENTS.md |
 

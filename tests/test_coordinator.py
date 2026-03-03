@@ -567,8 +567,9 @@ def test_start_coordinator_registers_session_and_queues_bootstrap() -> None:
             with (
                 mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
                 mock.patch.object(daemon, "kill_all_coordinator_sessions", return_value=0),
-                mock.patch("requests.post", return_value=mock_response),
-                mock.patch.object(daemon, "inject_message") as mock_inject,
+                mock.patch("requests.post", return_value=mock_response) as mock_post,
+                mock.patch.object(daemon, "inject_message_sync", return_value=True) as mock_inject,
+                mock.patch.object(daemon, "_wait_for_coordinator_ready", return_value=True),
                 mock.patch.object(daemon, "AGENTS_DIR", agents_dir),
             ):
                 result = daemon.start_coordinator()
@@ -577,6 +578,9 @@ def test_start_coordinator_registers_session_and_queues_bootstrap() -> None:
         assert daemon.COORDINATOR_SESSION_ID == "ses_newcoord123"
         assert "ses_newcoord123" in daemon.ORIENTED_SESSIONS
         mock_inject.assert_called_once_with("ses_newcoord123", daemon.COORDINATOR_BOOTSTRAP_PROMPT)
+        assert mock_post.call_args is not None
+        payload = mock_post.call_args.kwargs.get("json", {})
+        assert payload.get("model") == daemon.COORDINATOR_MODEL
     finally:
         daemon.COORDINATOR_SESSION_ID = original_session_id
         daemon.COORDINATOR_ENABLED = original_enabled
@@ -603,6 +607,7 @@ def test_start_coordinator_returns_false_on_api_error() -> None:
             mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
             mock.patch.object(daemon, "kill_all_coordinator_sessions", return_value=0),
             mock.patch("requests.post", return_value=mock_response),
+            mock.patch.object(daemon, "_wait_for_coordinator_ready", return_value=True),
         ):
             result = daemon.start_coordinator()
 
@@ -639,7 +644,8 @@ def test_start_coordinator_reuses_existing_session() -> None:
                 daemon, "kill_all_coordinator_sessions", return_value=1
             ) as mock_killed,
             mock.patch("requests.post", return_value=mock_post_response),
-            mock.patch.object(daemon, "inject_message"),
+            mock.patch.object(daemon, "inject_message_sync", return_value=True),
+            mock.patch.object(daemon, "_wait_for_coordinator_ready", return_value=True),
             mock.patch.object(daemon, "AGENTS_DIR", Path(tmpdir) / "agents"),
         ):
             result = daemon.start_coordinator()
@@ -688,6 +694,68 @@ def test_start_coordinator_fails_when_setup_fails() -> None:
     finally:
         daemon.COORDINATOR_SESSION_ID = original_session_id
         daemon.COORDINATOR_ENABLED = original_enabled
+
+
+def test_start_coordinator_fails_when_ready_not_acknowledged() -> None:
+    """Verify start_coordinator fails when READY acknowledgement is missing."""
+    from opencode_agent_hub import daemon
+
+    original_session_id = daemon.COORDINATOR_SESSION_ID
+    original_enabled = daemon.COORDINATOR_ENABLED
+    original_oriented = daemon.ORIENTED_SESSIONS.copy()
+
+    try:
+        daemon.COORDINATOR_SESSION_ID = None
+        daemon.COORDINATOR_ENABLED = True
+        daemon.ORIENTED_SESSIONS = set()
+
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "ses_not_ready"}
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            mock.patch.object(daemon, "setup_coordinator_directory", return_value=True),
+            mock.patch.object(daemon, "kill_all_coordinator_sessions", return_value=0),
+            mock.patch("requests.post", return_value=mock_response),
+            mock.patch("requests.delete") as mock_delete,
+            mock.patch.object(daemon, "inject_message_sync", return_value=True),
+            mock.patch.object(daemon, "_wait_for_coordinator_ready", return_value=False),
+            mock.patch.object(daemon, "AGENTS_DIR", Path(tmpdir) / "agents"),
+        ):
+            result = daemon.start_coordinator()
+
+        assert result is False
+        assert daemon.COORDINATOR_SESSION_ID is None
+        assert "ses_not_ready" not in daemon.ORIENTED_SESSIONS
+        mock_delete.assert_called_once()
+    finally:
+        daemon.COORDINATOR_SESSION_ID = original_session_id
+        daemon.COORDINATOR_ENABLED = original_enabled
+        daemon.ORIENTED_SESSIONS = original_oriented
+
+
+def test_notify_coordinator_new_agent_retries_when_no_activity() -> None:
+    """Verify NEW_AGENT notification is retried once when coordinator is silent."""
+    from opencode_agent_hub import daemon
+
+    original_enabled = daemon.COORDINATOR_ENABLED
+    original_session_id = daemon.COORDINATOR_SESSION_ID
+
+    try:
+        daemon.COORDINATOR_ENABLED = True
+        daemon.COORDINATOR_SESSION_ID = "ses_coord_retry"
+
+        with (
+            mock.patch.object(daemon, "inject_message") as mock_inject,
+            mock.patch.object(daemon, "_wait_for_coordinator_activity", return_value=False),
+        ):
+            daemon.notify_coordinator_new_agent("worker-1", "/tmp/project")
+
+        assert mock_inject.call_count == 2
+    finally:
+        daemon.COORDINATOR_ENABLED = original_enabled
+        daemon.COORDINATOR_SESSION_ID = original_session_id
 
 
 # =============================================================================

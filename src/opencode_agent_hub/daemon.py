@@ -64,6 +64,7 @@ import sys
 import threading
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 
 # For accessing package data files reliably across install methods (pip, deb, rpm, aur)
@@ -241,6 +242,7 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # COORDINATOR_ENABLED: Enable the coordinator agent (default: true)
 # COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/minimax-m2.5-free)
 # COORDINATOR_PRESERVE_LOCAL_AGENTS_MD: Keep existing coordinator AGENTS.md (default: false)
+# COORDINATOR_READY_TIMEOUT_SECONDS: Wait for READY after bootstrap (default: 20)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
 COORDINATOR_ENABLED = bool(
@@ -261,6 +263,15 @@ COORDINATOR_PRESERVE_LOCAL_AGENTS_MD = bool(
         False,
         _CONFIG,
         bool,
+    )
+)
+COORDINATOR_READY_TIMEOUT_SECONDS = int(
+    _get_config_value(
+        "AGENT_HUB_COORDINATOR_READY_TIMEOUT",
+        ["coordinator", "ready_timeout_seconds"],
+        20,
+        _CONFIG,
+        int,
     )
 )
 _coordinator_dir_str = str(
@@ -310,6 +321,76 @@ def _is_running_from_source() -> bool:
     """Return True when daemon is running from a source checkout."""
     repo_root = Path(__file__).parent.parent.parent
     return (repo_root / "pyproject.toml").exists() and (repo_root / "contrib").exists()
+
+
+def _coordinator_has_ready_ack(messages: list[dict[str, Any]]) -> bool:
+    """Return True when coordinator replied with exact READY text."""
+    for msg in messages:
+        info = msg.get("info", {})
+        if info.get("role") != "assistant":
+            continue
+
+        for part in msg.get("parts", []):
+            if part.get("type") == "text" and str(part.get("text", "")).strip() == "READY":
+                return True
+    return False
+
+
+def _coordinator_has_activity_after(messages: list[dict[str, Any]], after_ms: int) -> bool:
+    """Return True when coordinator produced assistant output after a timestamp."""
+    for msg in messages:
+        info = msg.get("info", {})
+        if info.get("role") != "assistant":
+            continue
+
+        created = int(info.get("time", {}).get("created", 0))
+        if created <= after_ms:
+            continue
+
+        if msg.get("parts"):
+            return True
+    return False
+
+
+def _fetch_session_messages(session_id: str) -> list[dict[str, Any]]:
+    """Fetch session messages, returning an empty list on errors."""
+    try:
+        resp = requests.get(
+            f"{OPENCODE_URL}/session/{session_id}/message", timeout=INJECTION_TIMEOUT
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        if isinstance(payload, list):
+            return payload
+    except requests.RequestException:
+        return []
+    except (ValueError, TypeError):
+        return []
+    return []
+
+
+def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int) -> bool:
+    """Wait for READY acknowledgement from coordinator session."""
+    deadline = time.time() + max(1, timeout_seconds)
+    while time.time() < deadline:
+        messages = _fetch_session_messages(session_id)
+        if _coordinator_has_ready_ack(messages):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def _wait_for_coordinator_activity(
+    session_id: str, after_ms: int, timeout_seconds: int = 5
+) -> bool:
+    """Wait for coordinator assistant output after a specific timestamp."""
+    deadline = time.time() + max(1, timeout_seconds)
+    while time.time() < deadline:
+        messages = _fetch_session_messages(session_id)
+        if _coordinator_has_activity_after(messages, after_ms):
+            return True
+        time.sleep(0.5)
+    return False
 
 
 # Coordinator cost estimation pricing (per token, NOT per million tokens)
@@ -547,6 +628,7 @@ metrics = PrometheusMetrics()
 
 # Metrics file location
 METRICS_FILE = AGENT_HUB_DIR / "metrics.prom"
+HUB_SERVER_PID_FILE = AGENT_HUB_DIR / "hub-server.pid"
 
 
 def load_oriented_sessions() -> set[str]:
@@ -1175,6 +1257,7 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
             time.sleep(0.5)
             if is_hub_server_running():
                 log.info(f"Hub server started (PID {HUB_SERVER_PROCESS.pid})")
+                HUB_SERVER_PID_FILE.write_text(str(HUB_SERVER_PROCESS.pid))
                 return HUB_SERVER_PROCESS
 
         log.error("Hub server failed to start within timeout")
@@ -1200,6 +1283,28 @@ def stop_hub_server() -> None:
             log.warning("Hub server didn't stop gracefully, killing...")
             HUB_SERVER_PROCESS.kill()
         HUB_SERVER_PROCESS = None
+
+    elif HUB_SERVER_PID_FILE.exists():
+        try:
+            pid = int(HUB_SERVER_PID_FILE.read_text().strip())
+            cmd = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            command = cmd.stdout.strip()
+            if "opencode serve" in command and f"--port {OPENCODE_PORT}" in command:
+                log.info(f"Stopping hub server from PID file (PID {pid})...")
+                os.kill(pid, signal.SIGTERM)
+        except (ValueError, OSError, subprocess.SubprocessError):
+            pass
+
+    try:
+        if HUB_SERVER_PID_FILE.exists():
+            HUB_SERVER_PID_FILE.unlink()
+    except OSError:
+        pass
 
 
 # =============================================================================
@@ -1527,9 +1632,8 @@ def find_coordinator_session() -> str | None:
 def start_coordinator() -> bool:
     """Start the coordinator OpenCode session.
 
-    Coordinator startup is intentionally non-blocking: we create the session,
-    register it as an agent, and queue the bootstrap prompt asynchronously.
-    This avoids daemon startup failures caused by long-running model responses.
+    Startup remains lightweight, but requires a READY acknowledgement after
+    bootstrap to avoid silent coordinator failures.
 
     Returns True if coordinator session is ready, False otherwise.
     """
@@ -1559,6 +1663,7 @@ def start_coordinator() -> bool:
             json={
                 "title": coordinator_title,
                 "directory": str(COORDINATOR_DIR),
+                "model": COORDINATOR_MODEL,
             },
             timeout=10,
         )
@@ -1598,9 +1703,31 @@ def start_coordinator() -> bool:
         agent_file.write_text(json.dumps(coordinator_agent, indent=2))
         log.info("Registered coordinator as agent 'coordinator'")
 
-        # Queue bootstrap prompt without blocking daemon startup.
-        inject_message(session_id, COORDINATOR_BOOTSTRAP_PROMPT)
-        log.info(f"Queued coordinator bootstrap prompt for session {session_id[:8]}")
+        # Send bootstrap prompt synchronously before waiting for READY.
+        if not inject_message_sync(session_id, COORDINATOR_BOOTSTRAP_PROMPT):
+            log.error(f"Failed to inject coordinator bootstrap prompt for session {session_id[:8]}")
+            with suppress(requests.RequestException):
+                requests.delete(f"{OPENCODE_URL}/session/{session_id}", timeout=5)
+            COORDINATOR_SESSION_ID = None
+            ORIENTED_SESSIONS.discard(session_id)
+            if agent_file.exists():
+                agent_file.unlink()
+            return False
+
+        log.info(f"Injected coordinator bootstrap prompt for session {session_id[:8]}")
+
+        if not _wait_for_coordinator_ready(session_id, COORDINATOR_READY_TIMEOUT_SECONDS):
+            log.error(
+                "Coordinator did not acknowledge bootstrap with READY "
+                f"within {COORDINATOR_READY_TIMEOUT_SECONDS}s"
+            )
+            with suppress(requests.RequestException):
+                requests.delete(f"{OPENCODE_URL}/session/{session_id}", timeout=5)
+            COORDINATOR_SESSION_ID = None
+            ORIENTED_SESSIONS.discard(session_id)
+            if agent_file.exists():
+                agent_file.unlink()
+            return False
 
         log.info(f"Coordinator session ready: {session_id[:8]}")
         return True
@@ -1648,9 +1775,16 @@ def notify_coordinator_new_agent(agent_id: str, directory: str) -> None:
     if not COORDINATOR_ENABLED or not COORDINATOR_SESSION_ID:
         return
 
+    before_ms = int(time.time() * 1000)
     notification = f"NEW_AGENT: {agent_id} at {directory}"
     inject_message(COORDINATOR_SESSION_ID, notification)
     log.info(f"Notified coordinator of new agent: {agent_id}")
+
+    if not _wait_for_coordinator_activity(COORDINATOR_SESSION_ID, before_ms, timeout_seconds=5):
+        log.warning(
+            f"Coordinator showed no activity after NEW_AGENT {agent_id}; retrying notification once"
+        )
+        inject_message(COORDINATOR_SESSION_ID, notification)
 
 
 def poll_coordinator_cost() -> None:
@@ -2776,6 +2910,8 @@ Examples:
 
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, shutdown_handler)
 
     def session_poller() -> None:
         """Background thread that polls for new active sessions."""
