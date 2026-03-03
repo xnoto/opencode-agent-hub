@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.2.0...v1.2.1) (2026-03-03)
+
+
+### Bug Fixes
+
+* update session storage path and persist orientation state ([#53](https://github.com/xnoto/opencode-agent-hub/issues/53)) ([02eb236](https://github.com/xnoto/opencode-agent-hub/commit/02eb2361b7a8c40b3c8ffd9e125a38f34912a938))
+
 ## [1.2.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.1.1...v1.2.0) (2026-03-03)
 
 
