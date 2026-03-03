@@ -65,6 +65,9 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+
+# For accessing package data files reliably across install methods (pip, deb, rpm, aur)
+from importlib.resources import files
 from pathlib import Path
 from typing import cast
 
@@ -1188,9 +1191,11 @@ def find_coordinator_agents_md_template() -> Path | None:
     1. Explicit config/env var path (COORDINATOR_AGENTS_MD)
     2. ~/.config/agent-hub-daemon/AGENTS.md (user override)
     3. ~/.config/agent-hub-daemon/COORDINATOR.md (alias)
-    4. Package contrib/coordinator/AGENTS.md
-    5. ~/.local/share/opencode-agent-hub/coordinator/AGENTS.md
-    6. /usr/local/share/opencode-agent-hub/coordinator/AGENTS.md
+    4. importlib.resources (pip/PyPI package data)
+    5. /usr/share/opencode-agent-hub/coordinator/AGENTS.md (system packages: deb, rpm)
+    6. /usr/local/share/opencode-agent-hub/coordinator/AGENTS.md (local install)
+    7. ~/.local/share/opencode-agent-hub/coordinator/AGENTS.md (user local)
+    8. Development: repo contrib/ directory
 
     Returns the first existing path, or None if no template found.
     """
@@ -1212,16 +1217,36 @@ def find_coordinator_agents_md_template() -> Path | None:
         if path.exists():
             return path
 
-    # 4-6. Package and system locations
+    # 4. importlib.resources - works with pip/PyPI installs
+    try:
+        import opencode_agent_hub
+
+        pkg_path = files(opencode_agent_hub) / "contrib" / "coordinator" / "AGENTS.md"
+        if pkg_path.is_file():
+            return Path(str(pkg_path))
+    except (ImportError, TypeError):
+        pass
+
+    # 5-8. System locations (FHS-compliant + Homebrew)
     system_locations = [
-        Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "AGENTS.md",
-        Path.home() / ".local/share/opencode-agent-hub/coordinator/AGENTS.md",
-        Path("/usr/local/share/opencode-agent-hub/coordinator/AGENTS.md"),
+        Path("/usr/share/opencode-agent-hub/coordinator/AGENTS.md"),  # deb, rpm
+        Path(
+            "/usr/local/share/opencode-agent-hub/coordinator/AGENTS.md"
+        ),  # local, Homebrew (Intel)
+        Path(
+            "/opt/homebrew/share/opencode-agent-hub/coordinator/AGENTS.md"
+        ),  # Homebrew (Apple Silicon)
+        Path.home() / ".local/share/opencode-agent-hub/coordinator/AGENTS.md",  # user
     ]
 
     for path in system_locations:
         if path.exists():
             return path
+
+    # 8. Development: repo contrib/ directory (when running from source)
+    dev_template = Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "AGENTS.md"
+    if dev_template.exists():
+        return dev_template
 
     return None
 
@@ -1230,34 +1255,50 @@ def find_coordinator_opencode_json_template() -> Path | None:
     """Find the opencode.json template for the coordinator.
 
     Search order:
-    1. Package contrib/coordinator/opencode.json
-    2. ~/.config/agent-hub-daemon/opencode.json (user override)
-    3. ~/.local/share/opencode-agent-hub/coordinator/opencode.json
-    4. /usr/local/share/opencode-agent-hub/coordinator/opencode.json
+    1. ~/.config/agent-hub-daemon/opencode.json (user override - highest priority)
+    2. importlib.resources (pip/PyPI package data)
+    3. /usr/share/opencode-agent-hub/coordinator/opencode.json (system packages: deb, rpm)
+    4. /usr/local/share/opencode-agent-hub/coordinator/opencode.json (local install)
+    5. ~/.local/share/opencode-agent-hub/coordinator/opencode.json (user local)
+    6. Development: repo contrib/ directory
 
     Returns the first existing path, or None if no template found.
     """
-    # 1. Package location (highest priority for consistency)
-    package_template = (
-        Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "opencode.json"
-    )
-    if package_template.exists():
-        return package_template
-
-    # 2. User config directory override
+    # 1. User config directory override (highest priority)
     user_config_path = CONFIG_DIR / "opencode.json"
     if user_config_path.exists():
         return user_config_path
 
-    # 3-4. System locations
+    # 2. importlib.resources - works with pip/PyPI installs
+    try:
+        import opencode_agent_hub
+
+        pkg_path = files(opencode_agent_hub) / "contrib" / "coordinator" / "opencode.json"
+        if pkg_path.is_file():
+            return Path(str(pkg_path))
+    except (ImportError, TypeError):
+        pass
+
+    # 3-6. System locations (FHS-compliant + Homebrew)
     system_locations = [
-        Path.home() / ".local/share/opencode-agent-hub/coordinator/opencode.json",
-        Path("/usr/local/share/opencode-agent-hub/coordinator/opencode.json"),
+        Path("/usr/share/opencode-agent-hub/coordinator/opencode.json"),  # deb, rpm
+        Path(
+            "/usr/local/share/opencode-agent-hub/coordinator/opencode.json"
+        ),  # local, Homebrew (Intel)
+        Path(
+            "/opt/homebrew/share/opencode-agent-hub/coordinator/opencode.json"
+        ),  # Homebrew (Apple Silicon)
+        Path.home() / ".local/share/opencode-agent-hub/coordinator/opencode.json",  # user
     ]
 
     for path in system_locations:
         if path.exists():
             return path
+
+    # 6. Development: repo contrib/ directory (when running from source)
+    dev_template = Path(__file__).parent.parent.parent / "contrib" / "coordinator" / "opencode.json"
+    if dev_template.exists():
+        return dev_template
 
     return None
 
@@ -2715,6 +2756,8 @@ Examples:
     # Start coordinator (after hub server is ready)
     if not start_coordinator():
         log.error("Failed to start coordinator - daemon cannot function without it")
+        # Clean up resources before exiting
+        stop_hub_server()
         sys.exit(1)
 
     # Shared agents dict - updated by AgentHandler

@@ -67,7 +67,13 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/opencode_agent_hub"]
-include = ["/contrib"]
+include = [
+    "/contrib/coordinator/opencode.json",
+    "/contrib/coordinator/AGENTS.md",
+]
+[tool.hatch.build.targets.wheel.force-include]
+"contrib/coordinator/opencode.json" = "opencode_agent_hub/contrib/coordinator/opencode.json"
+"contrib/coordinator/AGENTS.md" = "opencode_agent_hub/contrib/coordinator/AGENTS.md"
 
 [tool.ruff]
 target-version = "py311"
