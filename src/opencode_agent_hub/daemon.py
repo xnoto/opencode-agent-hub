@@ -86,9 +86,7 @@ THREADS_DIR = AGENT_HUB_DIR / "threads"
 AGENTS_DIR = AGENT_HUB_DIR / "agents"
 ORIENTED_SESSIONS_FILE = AGENT_HUB_DIR / "oriented_sessions.json"
 OPENCODE_DATA_DIR = Path.home() / ".local/share/opencode"
-OPENCODE_SESSIONS_DIR = (
-    OPENCODE_DATA_DIR / "storage/session"
-)  # Watch all project subdirs, not just global
+OPENCODE_STORAGE_DIR = OPENCODE_DATA_DIR / "storage"  # Watch all project subdirs, not just global
 CONFIG_DIR = Path.home() / ".config" / "agent-hub-daemon"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -174,6 +172,8 @@ MESSAGE_TTL_SECONDS = int(
 AGENT_STALE_SECONDS = int(
     _get_config_value("AGENT_HUB_AGENT_STALE", ["gc", "agent_stale_seconds"], 3600, _CONFIG, int)
 )
+# Allow orienting existing sessions updated within this window (24 hours)
+SESSION_RECENT_WINDOW_MS = 24 * 3600 * 1000
 GC_INTERVAL_SECONDS = int(
     _get_config_value("AGENT_HUB_GC_INTERVAL", ["gc", "interval_seconds"], 60, _CONFIG, int)
 )
@@ -511,6 +511,17 @@ metrics = PrometheusMetrics()
 
 # Metrics file location
 METRICS_FILE = AGENT_HUB_DIR / "metrics.prom"
+
+
+def load_oriented_sessions() -> set[str]:
+    """Load oriented sessions from disk."""
+    if not ORIENTED_SESSIONS_FILE.exists():
+        return set()
+    try:
+        return set(json.loads(ORIENTED_SESSIONS_FILE.read_text()))
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning(f"Failed to load oriented sessions: {e}")
+        return set()
 
 
 def save_oriented_sessions() -> None:
@@ -1993,10 +2004,14 @@ def process_session_file(path: Path, agents: dict[str, dict]) -> None:
     if session_id in ORIENTED_SESSIONS:
         return  # Already oriented
 
-    # Only orient sessions created AFTER daemon started
+    # Only orient sessions created AFTER daemon started OR updated recently
     created_ms = session.get("time", {}).get("created", 0)
-    if created_ms < DAEMON_START_TIME_MS:
-        log.debug(f"Session {session_id[:8]} created before daemon start, skipping")
+    updated_ms = session.get("time", {}).get("updated", 0)
+    if (
+        created_ms < DAEMON_START_TIME_MS
+        and (DAEMON_START_TIME_MS - updated_ms) > SESSION_RECENT_WINDOW_MS
+    ):
+        log.debug(f"Session {session_id[:8]} too old for orientation, skipping")
         return
 
     directory = session.get("directory", "")
@@ -2036,9 +2051,13 @@ def poll_active_sessions(agents: dict[str, dict]) -> None:
         if not session_id or session_id in ORIENTED_SESSIONS:
             continue
 
-        # Only orient sessions created AFTER daemon started
+        # Only orient sessions created AFTER daemon started OR updated recently
         created_ms = session.get("time", {}).get("created", 0)
-        if created_ms < DAEMON_START_TIME_MS:
+        updated_ms = session.get("time", {}).get("updated", 0)
+        if (
+            created_ms < DAEMON_START_TIME_MS
+            and (DAEMON_START_TIME_MS - updated_ms) > SESSION_RECENT_WINDOW_MS
+        ):
             continue
 
         directory = session.get("directory", "")
@@ -2450,19 +2469,18 @@ Examples:
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load persisted state
-    # Fresh start: clear oriented sessions and session-agent mappings from previous runs
-    # Only sessions created AFTER daemon starts will be oriented
+    # Only sessions created AFTER daemon starts OR updated recently will be oriented
     global ORIENTED_SESSIONS, SESSION_AGENTS, DAEMON_START_TIME_MS, ORIENTATION_PENDING
     DAEMON_START_TIME_MS = int(time.time() * 1000)
-    ORIENTED_SESSIONS = set()
-    save_oriented_sessions()
-    SESSION_AGENTS = {}
-    save_session_agents()
+    ORIENTED_SESSIONS = load_oriented_sessions()
+    SESSION_AGENTS = load_session_agents()
     ORIENTATION_PENDING = {}
 
-    log.info(f"Daemon starting at {DAEMON_START_TIME_MS} - only new sessions will be oriented")
+    log.info(
+        f"Daemon starting at {DAEMON_START_TIME_MS} - {len(ORIENTED_SESSIONS)} sessions already oriented"
+    )
     log.info(f"Watching messages: {MESSAGES_DIR}")
-    log.info(f"Watching sessions: {OPENCODE_SESSIONS_DIR}")
+    log.info(f"Watching sessions: {OPENCODE_STORAGE_DIR}")
     log.info(f"Watching agents: {AGENTS_DIR}")
     log.info(f"OpenCode API: {OPENCODE_URL}")
     log.info(f"Message TTL: {MESSAGE_TTL_SECONDS}s, GC interval: {GC_INTERVAL_SECONDS}s")
@@ -2492,12 +2510,12 @@ Examples:
     # Watches recursively to catch both global/ and project-specific subdirectories
     # Only triggers on NEW session files - does NOT scan existing sessions on startup
     # This prevents spamming hundreds of sessions with orientation messages
-    if OPENCODE_SESSIONS_DIR.exists():
+    if OPENCODE_STORAGE_DIR.exists():
         session_handler = SessionHandler()
-        observer.schedule(session_handler, str(OPENCODE_SESSIONS_DIR), recursive=True)
-        log.info(f"Watching for new sessions in {OPENCODE_SESSIONS_DIR} (recursive)")
+        observer.schedule(session_handler, str(OPENCODE_STORAGE_DIR), recursive=True)
+        log.info(f"Watching for new sessions in {OPENCODE_STORAGE_DIR} (recursive)")
     else:
-        log.warning(f"Sessions directory not found: {OPENCODE_SESSIONS_DIR}")
+        log.warning(f"Sessions directory not found: {OPENCODE_STORAGE_DIR}")
 
     # Watch agents directory for registration changes
     agent_handler = AgentHandler(agents)
