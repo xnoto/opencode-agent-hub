@@ -294,14 +294,6 @@ COORDINATOR_BOOTSTRAP_REQUIRED = bool(
         bool,
     )
 )
-HUB_SERVER_MODEL = str(
-    _get_config_value(
-        "AGENT_HUB_HUB_MODEL",
-        ["hub", "model"],
-        COORDINATOR_MODEL,
-        _CONFIG,
-    )
-)
 _coordinator_dir_str = str(
     _get_config_value(
         "AGENT_HUB_COORDINATOR_DIR",
@@ -1333,10 +1325,7 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
     global HUB_SERVER_PROCESS
 
     if is_hub_server_running():
-        log.info(
-            f"Hub server already running on port {OPENCODE_PORT} "
-            f"(model controlled by that server instance, desired={HUB_SERVER_MODEL})"
-        )
+        log.info(f"Hub server already running on port {OPENCODE_PORT}")
         return None
 
     log.info(f"Starting OpenCode hub server on port {OPENCODE_PORT}...")
@@ -1361,8 +1350,6 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
                 "serve",
                 "--port",
                 str(OPENCODE_PORT),
-                "--model",
-                HUB_SERVER_MODEL,
                 "--print-logs",
             ],
             stdout=hub_stdout,
@@ -2987,10 +2974,7 @@ Examples:
     log.info(f"OpenCode API: {OPENCODE_URL}")
     log.info(f"Message TTL: {MESSAGE_TTL_SECONDS}s, GC interval: {GC_INTERVAL_SECONDS}s")
     if COORDINATOR_ENABLED:
-        log.info(
-            f"Coordinator: enabled, model={COORDINATOR_MODEL}, dir={COORDINATOR_DIR}, "
-            f"hub_model={HUB_SERVER_MODEL}"
-        )
+        log.info(f"Coordinator: enabled, model={COORDINATOR_MODEL}, dir={COORDINATOR_DIR}")
     else:
         log.info("Coordinator: disabled")
 
