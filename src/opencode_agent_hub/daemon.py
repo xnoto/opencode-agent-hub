@@ -236,7 +236,7 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # Coordinator settings
 # The coordinator is a dedicated OpenCode session that facilitates agent collaboration
 # COORDINATOR_ENABLED: Enable the coordinator agent (default: true)
-# COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/claude-opus-4-6)
+# COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/minimax-m2.5-free)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
 COORDINATOR_ENABLED = bool(
@@ -246,7 +246,7 @@ COORDINATOR_MODEL = str(
     _get_config_value(
         "AGENT_HUB_COORDINATOR_MODEL",
         ["coordinator", "model"],
-        "opencode/claude-opus-4-6",
+        "opencode/minimax-m2.5-free",
         _CONFIG,
     )
 )
@@ -277,14 +277,14 @@ COORDINATOR_AGENTS_MD: Path | None = (
 COORDINATOR_TITLE = "agent-hub-coordinator"
 
 # Coordinator cost estimation pricing (per token, NOT per million tokens)
-# Default prices: Anthropic Claude Opus 4 pricing as of 2025-05
+# Default prices: MiniMax M2.5 standard pricing as of 2025-06
 # Override via env vars or config file ["coordinator"]["pricing"][...]
 # Set all to 0 to disable cost estimation (tokens still tracked)
 PRICING_INPUT = float(
     _get_config_value(
         "AGENT_HUB_PRICING_INPUT",
         ["coordinator", "pricing", "input"],
-        "0.000015",  # $15/MTok
+        "0.0000015",  # $1.50/MTok (MiniMax M2.5 standard)
         _CONFIG,
     )
 )
@@ -292,7 +292,7 @@ PRICING_OUTPUT = float(
     _get_config_value(
         "AGENT_HUB_PRICING_OUTPUT",
         ["coordinator", "pricing", "output"],
-        "0.000075",  # $75/MTok
+        "0.000006",  # $6/MTok (MiniMax M2.5 standard)
         _CONFIG,
     )
 )
@@ -300,7 +300,7 @@ PRICING_CACHE_READ = float(
     _get_config_value(
         "AGENT_HUB_PRICING_CACHE_READ",
         ["coordinator", "pricing", "cache_read"],
-        "0.0000015",  # $1.50/MTok
+        "0.0",  # MiniMax M2.5 does not support prompt caching
         _CONFIG,
     )
 )
@@ -308,7 +308,7 @@ PRICING_CACHE_WRITE = float(
     _get_config_value(
         "AGENT_HUB_PRICING_CACHE_WRITE",
         ["coordinator", "pricing", "cache_write"],
-        "0.00001875",  # $18.75/MTok
+        "0.0",  # MiniMax M2.5 does not support prompt caching
         _CONFIG,
     )
 )

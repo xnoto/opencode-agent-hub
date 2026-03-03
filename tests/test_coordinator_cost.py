@@ -18,7 +18,7 @@ def _make_assistant_message(
         "info": {
             "id": "msg_test",
             "role": "assistant",
-            "modelID": "claude-opus-4-6",
+            "modelID": "minimax-m2.5",
             "providerID": "anthropic",
             "tokens": {
                 "total": input_tokens + output_tokens + cache_read + cache_write,
@@ -193,7 +193,7 @@ def test_poll_coordinator_cost_estimated_cost():
 
 
 def test_poll_coordinator_cost_default_pricing():
-    """Verify default pricing matches Anthropic Claude Opus 4 rates."""
+    """Verify default pricing matches MiniMax M2.5 standard rates."""
     from opencode_agent_hub import daemon
 
     _reset_metrics()
@@ -204,13 +204,13 @@ def test_poll_coordinator_cost_default_pricing():
     daemon.COORDINATOR_SESSION_ID = "ses_test_cost_003"
 
     try:
-        # Use default pricing (should be Opus 4 rates)
+        # Use default pricing (should be MiniMax M2.5 standard rates)
         mock_messages = [
             _make_assistant_message(
                 input_tokens=1_000_000,
                 output_tokens=1_000_000,
-                cache_read=1_000_000,
-                cache_write=1_000_000,
+                cache_read=0,  # MiniMax does not support caching
+                cache_write=0,  # MiniMax does not support caching
             ),
         ]
 
@@ -222,10 +222,10 @@ def test_poll_coordinator_cost_default_pricing():
             daemon.poll_coordinator_cost()
 
         cost = daemon.metrics.get("agent_hub_coordinator_estimated_cost_usd")
-        # Expected at default Opus 4 pricing:
-        # 1M * $15/MTok + 1M * $75/MTok + 1M * $1.50/MTok + 1M * $18.75/MTok
-        # = $15 + $75 + $1.50 + $18.75 = $110.25
-        assert abs(cost - 110.25) < 0.01, f"Expected ~$110.25, got ${cost}"
+        # Expected at default MiniMax M2.5 standard pricing:
+        # 1M * $1.50/MTok + 1M * $6/MTok + 0 + 0
+        # = $1.50 + $6 = $7.50
+        assert abs(cost - 7.50) < 0.01, f"Expected ~$7.50, got ${cost}"
     finally:
         daemon.COORDINATOR_ENABLED = original_enabled
         daemon.COORDINATOR_SESSION_ID = original_session
