@@ -152,9 +152,12 @@ def test_setup_coordinator_directory_copies_template():
         config_dir.mkdir()
         coord_dir = Path(tmpdir) / "coordinator"
 
-        # Create user config template
+        # Create user config templates
         user_template = config_dir / "AGENTS.md"
         user_template.write_text("# Custom Coordinator Instructions")
+        # Create opencode.json template (required)
+        opencode_json = config_dir / "opencode.json"
+        opencode_json.write_text('{"permission": []}')
 
         original_config = daemon.COORDINATOR_AGENTS_MD
         original_config_dir = daemon.CONFIG_DIR
@@ -185,6 +188,10 @@ def test_setup_coordinator_directory_creates_minimal_when_no_template():
         config_dir = Path(tmpdir) / "config"
         config_dir.mkdir()  # Empty config dir
         coord_dir = Path(tmpdir) / "coordinator"
+
+        # Create opencode.json template (required)
+        opencode_json = config_dir / "opencode.json"
+        opencode_json.write_text('{"permission": []}')
 
         original_config = daemon.COORDINATOR_AGENTS_MD
         original_config_dir = daemon.CONFIG_DIR
@@ -227,12 +234,20 @@ def test_setup_coordinator_directory_skips_if_exists():
     from opencode_agent_hub import daemon
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        config_dir = Path(tmpdir) / "config"
+        config_dir.mkdir()
         coord_dir = Path(tmpdir) / "coordinator"
         coord_dir.mkdir()
         existing = coord_dir / "AGENTS.md"
         existing.write_text("# Existing content - should not be overwritten")
 
+        # Create opencode.json template (required)
+        opencode_json = config_dir / "opencode.json"
+        opencode_json.write_text('{"permission": []}')
+
+        original_config_dir = daemon.CONFIG_DIR
         original_coord_dir = daemon.COORDINATOR_DIR
+        daemon.CONFIG_DIR = config_dir
         daemon.COORDINATOR_DIR = coord_dir
 
         try:
@@ -242,6 +257,7 @@ def test_setup_coordinator_directory_skips_if_exists():
             # Verify content was NOT overwritten
             assert existing.read_text() == "# Existing content - should not be overwritten"
         finally:
+            daemon.CONFIG_DIR = original_config_dir
             daemon.COORDINATOR_DIR = original_coord_dir
 
 
