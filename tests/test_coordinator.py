@@ -758,6 +758,81 @@ def test_notify_coordinator_new_agent_retries_when_no_activity() -> None:
         daemon.COORDINATOR_SESSION_ID = original_session_id
 
 
+def test_wait_for_coordinator_ready_accepts_activity_when_not_strict() -> None:
+    """Verify readiness accepts assistant activity when strict mode is disabled."""
+    from opencode_agent_hub import daemon
+
+    original_strict = daemon.COORDINATOR_STRICT_READY
+
+    try:
+        daemon.COORDINATOR_STRICT_READY = False
+        messages = [
+            {
+                "info": {"role": "assistant", "time": {"created": 2000}},
+                "parts": [{"type": "text", "text": "I am initialized"}],
+            }
+        ]
+
+        with (
+            mock.patch.object(daemon, "_fetch_session_messages", return_value=messages),
+            mock.patch("time.time", side_effect=[0.0, 0.1]),
+            mock.patch("time.sleep"),
+        ):
+            assert daemon._wait_for_coordinator_ready("ses_test", 20, after_ms=1000) is True
+    finally:
+        daemon.COORDINATOR_STRICT_READY = original_strict
+
+
+def test_wait_for_coordinator_ready_requires_ready_when_strict() -> None:
+    """Verify strict readiness mode ignores non-READY assistant activity."""
+    from opencode_agent_hub import daemon
+
+    original_strict = daemon.COORDINATOR_STRICT_READY
+
+    try:
+        daemon.COORDINATOR_STRICT_READY = True
+        messages = [
+            {
+                "info": {"role": "assistant", "time": {"created": 2000}},
+                "parts": [{"type": "text", "text": "Initialized"}],
+            }
+        ]
+
+        with (
+            mock.patch.object(daemon, "_fetch_session_messages", return_value=messages),
+            mock.patch("time.time", side_effect=[0.0, 0.1, 99.0]),
+            mock.patch("time.sleep"),
+        ):
+            assert daemon._wait_for_coordinator_ready("ses_test", 20, after_ms=1000) is False
+    finally:
+        daemon.COORDINATOR_STRICT_READY = original_strict
+
+
+def test_wait_for_coordinator_ready_accepts_exact_ready_in_strict_mode() -> None:
+    """Verify strict mode still succeeds on exact READY acknowledgement."""
+    from opencode_agent_hub import daemon
+
+    original_strict = daemon.COORDINATOR_STRICT_READY
+
+    try:
+        daemon.COORDINATOR_STRICT_READY = True
+        messages = [
+            {
+                "info": {"role": "assistant", "time": {"created": 2000}},
+                "parts": [{"type": "text", "text": "READY"}],
+            }
+        ]
+
+        with (
+            mock.patch.object(daemon, "_fetch_session_messages", return_value=messages),
+            mock.patch("time.time", side_effect=[0.0, 0.1]),
+            mock.patch("time.sleep"),
+        ):
+            assert daemon._wait_for_coordinator_ready("ses_test", 20, after_ms=1000) is True
+    finally:
+        daemon.COORDINATOR_STRICT_READY = original_strict
+
+
 # =============================================================================
 # Tests for coordinator self-registration race condition fix
 # =============================================================================

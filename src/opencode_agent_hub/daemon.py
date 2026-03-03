@@ -243,6 +243,7 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/minimax-m2.5-free)
 # COORDINATOR_PRESERVE_LOCAL_AGENTS_MD: Keep existing coordinator AGENTS.md (default: false)
 # COORDINATOR_READY_TIMEOUT_SECONDS: Wait for READY after bootstrap (default: 20)
+# COORDINATOR_STRICT_READY: Require exact READY (default: false)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
 COORDINATOR_ENABLED = bool(
@@ -272,6 +273,15 @@ COORDINATOR_READY_TIMEOUT_SECONDS = int(
         20,
         _CONFIG,
         int,
+    )
+)
+COORDINATOR_STRICT_READY = bool(
+    _get_config_value(
+        "AGENT_HUB_COORDINATOR_STRICT_READY",
+        ["coordinator", "strict_ready"],
+        False,
+        _CONFIG,
+        bool,
     )
 )
 _coordinator_dir_str = str(
@@ -369,12 +379,14 @@ def _fetch_session_messages(session_id: str) -> list[dict[str, Any]]:
     return []
 
 
-def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int) -> bool:
-    """Wait for READY acknowledgement from coordinator session."""
+def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int, after_ms: int = 0) -> bool:
+    """Wait for coordinator readiness based on READY or assistant activity."""
     deadline = time.time() + max(1, timeout_seconds)
     while time.time() < deadline:
         messages = _fetch_session_messages(session_id)
         if _coordinator_has_ready_ack(messages):
+            return True
+        if not COORDINATOR_STRICT_READY and _coordinator_has_activity_after(messages, after_ms):
             return True
         time.sleep(0.5)
     return False
@@ -1704,6 +1716,8 @@ def start_coordinator() -> bool:
         log.info("Registered coordinator as agent 'coordinator'")
 
         # Send bootstrap prompt synchronously before waiting for READY.
+        ready_after_ms = int(time.time() * 1000)
+
         if not inject_message_sync(session_id, COORDINATOR_BOOTSTRAP_PROMPT):
             log.error(f"Failed to inject coordinator bootstrap prompt for session {session_id[:8]}")
             with suppress(requests.RequestException):
@@ -1716,9 +1730,11 @@ def start_coordinator() -> bool:
 
         log.info(f"Injected coordinator bootstrap prompt for session {session_id[:8]}")
 
-        if not _wait_for_coordinator_ready(session_id, COORDINATOR_READY_TIMEOUT_SECONDS):
+        if not _wait_for_coordinator_ready(
+            session_id, COORDINATOR_READY_TIMEOUT_SECONDS, after_ms=ready_after_ms
+        ):
             log.error(
-                "Coordinator did not acknowledge bootstrap with READY "
+                "Coordinator did not become ready after bootstrap "
                 f"within {COORDINATOR_READY_TIMEOUT_SECONDS}s"
             )
             with suppress(requests.RequestException):
