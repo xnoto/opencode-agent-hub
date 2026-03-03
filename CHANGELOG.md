@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.3.0...v1.3.1) (2026-03-03)
+
+
+### Bug Fixes
+
+* cross-platform coordinator template discovery and resource cleanup ([#59](https://github.com/xnoto/opencode-agent-hub/issues/59)) ([f1347dc](https://github.com/xnoto/opencode-agent-hub/commit/f1347dc696c808dc68e8682e04c6f57e0b5febca))
+
 ## [1.3.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.2.1...v1.3.0) (2026-03-03)
 
 
