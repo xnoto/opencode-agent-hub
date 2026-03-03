@@ -1,14 +1,14 @@
 Package: opencode-agent-hub
-Version: 1.1.1-1
+Version: 1.2.0-1
 Architecture: all
 Maintainer: xnoto <https://github.com/xnoto>
 Installed-Size: 171
 Depends: python3-requests, python3-watchdog, python3:any, init-system-helpers (>= 1.52)
-Filename: ./opencode-agent-hub_1.1.1-1_all.deb
-Size: 42944
-MD5sum: e79c5c6dd155f8e2d04da067327d4add
-SHA1: 6ff6eac3cb836f1aa268a804a721595e7bab21b2
-SHA256: 9278204edb52957dc5e256f244ad31d30d2faae6b670fe1596861b36cf274804
+Filename: ./opencode-agent-hub_1.2.0-1_all.deb
+Size: 42958
+MD5sum: af09e9631b686d14faaf8e1eddab20e7
+SHA1: 015d8551318b7d623070b59c704f814693fc1ba3
+SHA256: e3bc15cee960d28a1992c4d435bf14f19d2e5c722bf1208a9a85c3c91fbe72c5
 Section: devel
 Priority: optional
 Homepage: https://github.com/xnoto/opencode-agent-hub
