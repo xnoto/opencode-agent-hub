@@ -1986,11 +1986,38 @@ def poll_coordinator_cost() -> None:
 
 
 def get_sessions_uncached() -> list[dict[str, Any]] | None:
-    """Fetch active OpenCode sessions (direct API call)."""
+    """Fetch active OpenCode sessions across all projects."""
     try:
-        resp = requests.get(f"{OPENCODE_URL}/session", timeout=5)
+        # 1. Get all project IDs
+        resp = requests.get(f"{OPENCODE_URL}/project", timeout=5)
         resp.raise_for_status()
-        return cast(list[dict[str, Any]], resp.json())
+        projects = cast(list[dict[str, Any]], resp.json())
+        project_ids = [p.get("id") for p in projects if p.get("id")]
+
+        # Always include "global" just in case it's not in the list
+        if "global" not in project_ids:
+            project_ids.append("global")
+
+        # 2. Fetch sessions for each project
+        all_sessions: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for pid in project_ids:
+            s_resp = requests.get(f"{OPENCODE_URL}/session", params={"projectID": pid}, timeout=5)
+            if s_resp.status_code != 200:
+                continue
+
+            sessions = s_resp.json()
+            if not isinstance(sessions, list):
+                continue
+
+            for s in sessions:
+                sid = s.get("id")
+                if sid and sid not in seen_ids:
+                    all_sessions.append(s)
+                    seen_ids.add(sid)
+
+        return all_sessions
     except requests.RequestException as e:
         log.error(f"Failed to fetch sessions: {e}")
         return None
