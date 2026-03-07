@@ -108,11 +108,15 @@ Releases are automated via [release-please](https://github.com/google-github-act
 ├── AGENTS.md               # Optional coordinator instructions override
 └── COORDINATOR.md          # Alias for AGENTS.md
 
-Daemon watches these directories and:
-1. Detects new messages via watchdog
-2. Looks up target agent's OpenCode session (by session ID, not directory)
-3. Injects message via OpenCode HTTP API
-4. Marks message as delivered
+~/.local/share/opencode/
+└── opencode.db             # Shared SQLite database (all sessions)
+
+Daemon:
+1. Polls SQLite DB for new sessions (primary discovery mechanism)
+2. Detects new messages via watchdog on ~/.agent-hub/messages/
+3. Looks up target agent's OpenCode session (by session ID, not directory)
+4. Injects message via OpenCode HTTP API (prompt_async)
+5. Marks message as delivered
 ```
 
 ### Session-Based Agent Identity
@@ -124,6 +128,8 @@ Multiple OpenCode sessions in the same directory each get a unique agent identit
 
 ## Testing
 
+### Unit Tests
+
 Tests use pytest:
 ```bash
 uv run pytest -v
@@ -133,3 +139,35 @@ For coverage:
 ```bash
 uv run pytest --cov=opencode_agent_hub --cov-report=html
 ```
+
+### Integration Testing (Manual)
+
+To test session discovery, orientation, and multi-agent coordination end-to-end,
+you need to run the daemon and watch dashboard, then spin up TUI sessions.
+
+**Terminal 1 — Daemon:**
+```bash
+uv run agent-hub-daemon
+```
+
+**Terminal 2 — Watch dashboard:**
+```bash
+uv run agent-hub-watch
+```
+
+**Terminal 3+ — TUI sessions:**
+```bash
+opencode                    # default model
+opencode --agent kimi       # specific agent/model
+```
+
+**What to verify:**
+- The daemon detects new TUI sessions within ~5 seconds (watch the daemon logs)
+- New sessions receive an orientation message from the coordinator
+- The watch dashboard shows the session and its agent identity
+- Messages sent between agents are delivered (check `~/.agent-hub/messages/`)
+
+The daemon discovers sessions by querying OpenCode's shared SQLite database at
+`~/.local/share/opencode/opencode.db`. All OpenCode processes (TUI and serve)
+share this database, so the daemon sees every session regardless of how it was
+started.
