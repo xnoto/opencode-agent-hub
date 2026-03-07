@@ -2675,13 +2675,22 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     if msg.get("read"):
         return
 
-    sessions = get_sessions()
-    if not sessions:
+    all_sessions = get_sessions()
+    if not all_sessions:
         log.info("No active sessions for message delivery")
         return
 
+    # Only deliver to sessions created after daemon start (plus coordinator)
+    sessions = [
+        s
+        for s in all_sessions
+        if s.get("time", {}).get("created", 0) >= DAEMON_START_TIME_MS
+        or (COORDINATOR_SESSION_ID and s.get("id") == COORDINATOR_SESSION_ID)
+    ]
+
     log.info(
-        f"Processing message from {msg.get('from')} to {to}, found {len(sessions)} total sessions"
+        f"Processing message from {msg.get('from')} to {to}, "
+        f"{len(sessions)} active sessions (of {len(all_sessions)} total)"
     )
 
     delivered = False
@@ -2988,8 +2997,21 @@ Examples:
     THREADS_DIR.mkdir(parents=True, exist_ok=True)
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Purge stale agent registrations from previous daemon runs.
+    # Agents are ephemeral — live agents re-register via MCP on their own.
+    # Without this, the coordinator would broadcast to dead agents on startup.
+    purged = 0
+    for agent_file in AGENTS_DIR.glob("*.json"):
+        try:
+            agent_file.unlink()
+            purged += 1
+        except OSError:
+            pass
+    if purged:
+        log.info(f"Purged {purged} stale agent registrations from previous run")
+
     # Load persisted state
-    # Only sessions created AFTER daemon starts OR updated recently will be oriented
+    # Only sessions created AFTER daemon starts will be oriented
     global ORIENTED_SESSIONS, SESSION_AGENTS, DAEMON_START_TIME_MS, ORIENTATION_PENDING
     DAEMON_START_TIME_MS = int(time.time() * 1000)
     ORIENTED_SESSIONS = load_oriented_sessions()
