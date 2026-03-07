@@ -179,8 +179,6 @@ MESSAGE_TTL_SECONDS = int(
 AGENT_STALE_SECONDS = int(
     _get_config_value("AGENT_HUB_AGENT_STALE", ["gc", "agent_stale_seconds"], 3600, _CONFIG, int)
 )
-# Allow orienting existing sessions updated within this window (24 hours)
-SESSION_RECENT_WINDOW_MS = 24 * 3600 * 1000
 GC_INTERVAL_SECONDS = int(
     _get_config_value("AGENT_HUB_GC_INTERVAL", ["gc", "interval_seconds"], 60, _CONFIG, int)
 )
@@ -2541,14 +2539,10 @@ def process_session_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         ORIENTED_SESSIONS.add(session_id)
         return
 
-    # Only orient sessions created AFTER daemon started OR updated recently
+    # Only orient sessions created AFTER daemon started
     created_ms = cast(int, session.get("time", {}).get("created", 0))
-    updated_ms = cast(int, session.get("time", {}).get("updated", 0))
-    if (
-        created_ms < DAEMON_START_TIME_MS
-        and (DAEMON_START_TIME_MS - updated_ms) > SESSION_RECENT_WINDOW_MS
-    ):
-        log.debug(f"Session {session_id[:8]} too old for orientation, skipping")
+    if created_ms < DAEMON_START_TIME_MS:
+        log.debug(f"Session {session_id[:8]} predates daemon start, skipping")
         return
 
     directory = session.get("directory", "")
@@ -2588,21 +2582,15 @@ def poll_active_sessions(agents: dict[str, dict[str, Any]]) -> None:
             ORIENTED_SESSIONS.add(session_id)
             continue
 
-        # Only orient sessions created AFTER daemon started OR updated recently
+        # Only orient sessions created AFTER daemon started
         created_ms = cast(int, session.get("time", {}).get("created", 0))
-        updated_ms = cast(int, session.get("time", {}).get("updated", 0))
-        if (
-            created_ms < DAEMON_START_TIME_MS
-            and (DAEMON_START_TIME_MS - updated_ms) > SESSION_RECENT_WINDOW_MS
-        ):
+        if created_ms < DAEMON_START_TIME_MS:
             continue
 
         directory = session.get("directory", "")
         if not directory:
             continue
 
-        # Get or auto-create agent for this session (unique per session)
-        # Note: Coordinator also registers as an agent so it can receive messages
         agent = get_or_create_agent_for_session(session, agents)
         log.info(f"New session {session_id[:8]} orienting as {agent.get('id')}")
         orient_session(session_id, agent, agents)
