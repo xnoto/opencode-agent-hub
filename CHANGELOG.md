@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/xnoto/opencode-agent-hub/compare/v1.3.1...v1.3.2) (2026-03-07)
+
+
+### Bug Fixes
+
+* **coordinator:** make bootstrap non-blocking ([#63](https://github.com/xnoto/opencode-agent-hub/issues/63)) ([211b0a6](https://github.com/xnoto/opencode-agent-hub/commit/211b0a6b2c657bce2ba873a4e140d7d28441e513))
+
 ## [1.3.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.3.0...v1.3.1) (2026-03-03)
 
 
