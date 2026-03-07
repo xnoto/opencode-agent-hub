@@ -187,7 +187,7 @@ Observed a minimal coordination run with two agents (frontend + backend) and a c
 **Test setup**:
 - Frontend task: login form that calls `POST /api/auth/login`
 - Backend task: implement `/api/auth/login` with JWT response
-- Coordinator model: `opencode/minimax-m2.5-free`
+- Coordinator model: `opencode/minimax-m2.5-free` (set via hub server config)
 
 **Observed interaction** (3 total messages):
 1. Frontend → Backend: asked for API contract details (request/response/error shapes)
@@ -536,7 +536,6 @@ Configuration via environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_HUB_COORDINATOR` | `true` | Enable the coordinator agent (`true`, `1`, or `yes`) |
-| `AGENT_HUB_COORDINATOR_MODEL` | `opencode/minimax-m2.5-free` | OpenCode model for the coordinator session |
 | `AGENT_HUB_COORDINATOR_PRESERVE_LOCAL_AGENTS_MD` | `false` | Keep existing `~/.agent-hub/coordinator/AGENTS.md` instead of refreshing from template |
 | `AGENT_HUB_COORDINATOR_READY_TIMEOUT` | `20` | Max seconds to wait for coordinator bootstrap `READY` acknowledgment |
 | `AGENT_HUB_COORDINATOR_STRICT_READY` | `false` | Require exact `READY` from coordinator bootstrap; otherwise assistant activity also counts as ready |
@@ -544,11 +543,7 @@ Configuration via environment variables:
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom path to coordinator AGENTS.md |
 
-Example - run coordinator on a different model:
-
-```bash
-export AGENT_HUB_COORDINATOR_MODEL=anthropic/claude-sonnet-4-5
-```
+The coordinator model is configured via the hub server's isolated `opencode.json` config (default: `opencode/minimax-m2.5-free`). To change it, edit `~/.agent-hub/hub-server-config/opencode/opencode.json`.
 
 #### Custom Coordinator Instructions
 
