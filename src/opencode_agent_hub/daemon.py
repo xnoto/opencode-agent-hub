@@ -240,23 +240,16 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # Coordinator settings
 # The coordinator is a dedicated OpenCode session that facilitates agent collaboration
 # COORDINATOR_ENABLED: Enable the coordinator agent (default: true)
-# COORDINATOR_MODEL: OpenCode model for coordinator (default: opencode/minimax-m2.5-free)
 # COORDINATOR_PRESERVE_LOCAL_AGENTS_MD: Keep existing coordinator AGENTS.md (default: false)
 # COORDINATOR_READY_TIMEOUT_SECONDS: Wait for READY after bootstrap (default: 20)
 # COORDINATOR_STRICT_READY: Require exact READY (default: false)
 # COORDINATOR_BOOTSTRAP_REQUIRED: Fail daemon startup if coordinator bootstrap is not ready (default: false)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
+# Note: The coordinator uses the global OpenCode default model. Configure your
+# opencode.json to set the desired model for all API-created sessions.
 COORDINATOR_ENABLED = bool(
     _get_config_value("AGENT_HUB_COORDINATOR", ["coordinator", "enabled"], True, _CONFIG, bool)
-)
-COORDINATOR_MODEL = str(
-    _get_config_value(
-        "AGENT_HUB_COORDINATOR_MODEL",
-        ["coordinator", "model"],
-        "opencode/minimax-m2.5-free",
-        _CONFIG,
-    )
 )
 COORDINATOR_PRESERVE_LOCAL_AGENTS_MD = bool(
     _get_config_value(
@@ -1316,11 +1309,33 @@ def _kill_opencode_serve_pids(pids: list[int]) -> None:
             continue
 
 
+def _setup_hub_server_config() -> Path:
+    """Create config directory for hub server with default model.
+
+    Creates a minimal opencode.json that sets the default model for all
+    API-created sessions. Uses XDG_CONFIG_HOME to isolate from user config.
+    """
+    config_dir = AGENT_HUB_DIR / "hub-server-config" / "opencode"
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    config_file = config_dir / "opencode.json"
+    config_content = {
+        "$schema": "https://opencode.ai/config.json",
+        "model": "opencode/minimax-m2.5-free",
+    }
+
+    config_file.write_text(json.dumps(config_content, indent=2))
+    return config_dir.parent
+
+
 def start_hub_server() -> subprocess.Popen[bytes] | None:
     """Launch OpenCode hub server in headless mode.
 
     The hub server provides HTTP API access to ALL OpenCode sessions,
     allowing the daemon to inject messages into any session.
+
+    Uses a custom XDG_CONFIG_HOME to set the default model for all
+    API-created sessions without affecting the user's global config.
     """
     global HUB_SERVER_PROCESS
 
@@ -1336,6 +1351,10 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
         log.error("opencode binary not found in PATH")
         return None
 
+    # Create hub server config with default model
+    hub_config_home = _setup_hub_server_config()
+    log.info(f"Hub server config: {hub_config_home}")
+
     # Launch headless server
     try:
         # Redirect stdout/stderr to log files
@@ -1343,6 +1362,10 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
         DAEMON_LOG_DIR.mkdir(parents=True, exist_ok=True)
         hub_stdout = open(DAEMON_LOG_DIR / "hub-stdout.log", "a")  # noqa: SIM115
         hub_stderr = open(HUB_STDERR_LOG_FILE, "a")  # noqa: SIM115
+
+        # Use XDG_CONFIG_HOME to set default model without affecting global config
+        env = os.environ.copy()
+        env["XDG_CONFIG_HOME"] = str(hub_config_home)
 
         HUB_SERVER_PROCESS = subprocess.Popen(
             [
@@ -1355,6 +1378,7 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
             stdout=hub_stdout,
             stderr=hub_stderr,
             start_new_session=True,  # Detach from terminal
+            env=env,
         )
 
         # Wait for server to start
@@ -1762,17 +1786,18 @@ def start_coordinator() -> bool:
     if killed > 0:
         log.info(f"Killed {killed} existing coordinator session(s)")
 
-    log.info(f"Starting coordinator with model {COORDINATOR_MODEL}...")
+    log.info("Starting coordinator session...")
 
     # Create session via HTTP API instead of CLI to inherit global permissions
     try:
         coordinator_title = _get_coordinator_title()
+        # Note: Model is set in coordinator's opencode.json, not via API
+        # The API model parameter is not always respected by OpenCode
         resp = requests.post(
             f"{OPENCODE_URL}/session",
             json={
                 "title": coordinator_title,
                 "directory": str(COORDINATOR_DIR),
-                "model": COORDINATOR_MODEL,
             },
             timeout=10,
         )
@@ -1985,8 +2010,136 @@ def poll_coordinator_cost() -> None:
 # =============================================================================
 
 
+def get_sessions_from_cli() -> list[dict[str, Any]] | None:
+    """Fetch sessions using opencode CLI (queries database directly).
+
+    This captures sessions that exist in the database but don't have
+    filesystem representation, which the HTTP API may miss.
+    """
+    opencode_bin = shutil.which("opencode")
+    if not opencode_bin:
+        log.debug("opencode binary not found for CLI session discovery")
+        return None
+
+    try:
+        result = subprocess.run(
+            [opencode_bin, "session", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            log.debug(f"opencode session list failed: {result.stderr}")
+            return None
+
+        # Parse the tabular output
+        sessions: list[dict[str, Any]] = []
+        lines = result.stdout.strip().split("\n")
+
+        # Skip header line if present (contains "Session ID" or similar)
+        start_idx = 0
+        if lines and ("Session ID" in lines[0] or "session" in lines[0].lower()):
+            start_idx = 1
+
+        for line in lines[start_idx:]:
+            # Parse format: "ses_XXX  Title  Updated"
+            # Session ID is first 32 characters (ses_ + 28 chars)
+            parts = line.strip().split(None, 1)
+            if len(parts) < 1:
+                continue
+
+            session_id = parts[0].strip()
+            if not session_id.startswith("ses_"):
+                continue
+
+            # Remaining parts contain title and timestamp
+            remainder = parts[1] if len(parts) > 1 else ""
+
+            # Try to extract title (everything before timestamp pattern)
+            title = remainder
+            if "  " in remainder:
+                # Split on double space which usually separates title from timestamp
+                title_parts = remainder.rsplit("  ", 1)
+                title = title_parts[0].strip()
+
+            # Set timestamps to "now" so CLI-discovered sessions pass time filters
+            # CLI sessions are by definition "active" (they exist in the database)
+            now_ms = int(time.time() * 1000)
+            sessions.append(
+                {
+                    "id": session_id,
+                    "title": title,
+                    "directory": "",  # Will be filled in later if needed
+                    "projectID": "",  # Will be determined from directory mapping
+                    "time": {"created": now_ms, "updated": now_ms},  # Mark as recently active
+                }
+            )
+
+        if sessions:
+            log.debug(f"Discovered {len(sessions)} sessions via CLI")
+            return sessions
+
+    except subprocess.TimeoutExpired:
+        log.warning("opencode session list timed out")
+    except Exception as e:
+        log.debug(f"CLI session discovery failed: {e}")
+
+    return None
+
+
+def _merge_session_sources(
+    http_sessions: list[dict[str, Any]],
+    cli_sessions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge sessions from HTTP API and CLI, preferring HTTP data for duplicates.
+
+    HTTP sessions have complete metadata (timestamps, projectID, directory).
+    CLI sessions may discover additional sessions missing from HTTP.
+    """
+    # Index HTTP sessions by ID for lookup
+    http_by_id: dict[str, dict[str, Any]] = {
+        s.get("id", ""): s for s in http_sessions if s.get("id")
+    }
+
+    merged: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    # First, add all HTTP sessions (most complete data)
+    for s in http_sessions:
+        sid = s.get("id")
+        if sid and sid not in seen_ids:
+            merged.append(s)
+            seen_ids.add(sid)
+
+    # Then add CLI-only sessions (fill in missing ones)
+    for s in cli_sessions:
+        sid = s.get("id")
+        if sid and sid not in seen_ids:
+            # If we have partial data from CLI but HTTP has more complete version, use HTTP
+            if sid in http_by_id:
+                merged.append(http_by_id[sid])
+            else:
+                # CLI-only session - use CLI data even if incomplete
+                merged.append(s)
+                log.debug(f"Session {sid[:12]} discovered via CLI but not HTTP API")
+            seen_ids.add(sid)
+
+    return merged
+
+
 def get_sessions_uncached() -> list[dict[str, Any]] | None:
-    """Fetch active OpenCode sessions across all projects."""
+    """Fetch active OpenCode sessions across all projects.
+
+    Uses hybrid approach:
+    1. Query CLI for all sessions (includes DB-only sessions)
+    2. Query HTTP API for complete metadata
+    3. Merge results, preferring HTTP data for duplicates
+    """
+    # Try CLI discovery first (may find sessions HTTP misses)
+    cli_sessions = get_sessions_from_cli()
+
+    # Try HTTP API discovery (has complete metadata)
+    http_sessions: list[dict[str, Any]] = []
     try:
         # 1. Get all project IDs
         resp = requests.get(f"{OPENCODE_URL}/project", timeout=5)
@@ -1999,9 +2152,7 @@ def get_sessions_uncached() -> list[dict[str, Any]] | None:
             project_ids.append("global")
 
         # 2. Fetch sessions for each project
-        all_sessions: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
-
         for pid in project_ids:
             s_resp = requests.get(f"{OPENCODE_URL}/session", params={"projectID": pid}, timeout=5)
             if s_resp.status_code != 200:
@@ -2014,13 +2165,33 @@ def get_sessions_uncached() -> list[dict[str, Any]] | None:
             for s in sessions:
                 sid = s.get("id")
                 if sid and sid not in seen_ids:
-                    all_sessions.append(s)
+                    http_sessions.append(s)
                     seen_ids.add(sid)
 
-        return all_sessions
     except requests.RequestException as e:
-        log.error(f"Failed to fetch sessions: {e}")
+        log.warning(f"HTTP session discovery failed: {e}")
+        # If HTTP fails but CLI succeeded, use CLI data
+        if cli_sessions:
+            log.info(f"Using CLI-only session discovery ({len(cli_sessions)} sessions)")
+            return cli_sessions
         return None
+
+    # Merge both sources
+    if cli_sessions and http_sessions:
+        merged = _merge_session_sources(http_sessions, cli_sessions)
+        cli_only_count = len(
+            [s for s in cli_sessions if s.get("id") not in {h.get("id") for h in http_sessions}]
+        )
+        if cli_only_count > 0:
+            log.info(f"Discovered {cli_only_count} additional sessions via CLI (not in HTTP API)")
+        return merged
+    elif http_sessions:
+        return http_sessions
+    elif cli_sessions:
+        log.info(f"Using CLI-only session discovery ({len(cli_sessions)} sessions)")
+        return cli_sessions
+
+    return None
 
 
 def get_sessions() -> list[dict[str, Any]] | None:
@@ -3001,7 +3172,7 @@ Examples:
     log.info(f"OpenCode API: {OPENCODE_URL}")
     log.info(f"Message TTL: {MESSAGE_TTL_SECONDS}s, GC interval: {GC_INTERVAL_SECONDS}s")
     if COORDINATOR_ENABLED:
-        log.info(f"Coordinator: enabled, model={COORDINATOR_MODEL}, dir={COORDINATOR_DIR}")
+        log.info(f"Coordinator: enabled, dir={COORDINATOR_DIR}")
     else:
         log.info("Coordinator: disabled")
 
