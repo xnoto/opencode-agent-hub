@@ -580,7 +580,8 @@ def test_start_coordinator_registers_session_and_queues_bootstrap() -> None:
         mock_inject.assert_called_once_with("ses_newcoord123", daemon.COORDINATOR_BOOTSTRAP_PROMPT)
         assert mock_post.call_args is not None
         payload = mock_post.call_args.kwargs.get("json", {})
-        assert payload.get("model") == daemon.COORDINATOR_MODEL
+        # Model is now set via hub server config, not API parameter
+        assert "model" not in payload
     finally:
         daemon.COORDINATOR_SESSION_ID = original_session_id
         daemon.COORDINATOR_ENABLED = original_enabled
@@ -927,12 +928,14 @@ def test_kill_opencode_serve_pids_escalates_to_sigkill() -> None:
         if sig == 0:
             return
 
+    import signal
+
     with mock.patch("os.kill", side_effect=fake_kill), mock.patch("time.sleep"):
         daemon._kill_opencode_serve_pids([123])
 
-    assert (123, daemon.signal.SIGTERM) in calls
+    assert (123, signal.SIGTERM) in calls
     assert (123, 0) in calls
-    assert (123, daemon.signal.SIGKILL) in calls
+    assert (123, signal.SIGKILL) in calls
 
 
 # =============================================================================
