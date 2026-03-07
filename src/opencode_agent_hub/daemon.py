@@ -1642,30 +1642,6 @@ You are the coordinator for a multi-agent system. Your job is to facilitate coll
     return True
 
 
-def _parse_session_id_from_json_output(stdout: bytes | None) -> str | None:
-    """Extract session ID from `opencode run --format json` output.
-
-    The JSON output is newline-delimited JSON events. Every event contains
-    a "sessionID" field. We parse the first line to extract it.
-
-    Returns the session ID string or None if parsing fails.
-    """
-    if not stdout:
-        return None
-    try:
-        first_line = stdout.split(b"\n", 1)[0].strip()
-        if not first_line:
-            return None
-        event = json.loads(first_line)
-        session_id = event.get("sessionID")
-        if session_id and isinstance(session_id, str) and session_id.startswith("ses_"):
-            return cast(str, session_id)
-        return None
-    except (json.JSONDecodeError, ValueError, UnicodeDecodeError) as e:
-        log.warning(f"Failed to parse coordinator JSON output: {e}")
-        return None
-
-
 def kill_all_coordinator_sessions() -> int:
     """Kill all existing coordinator sessions on the hub server.
 

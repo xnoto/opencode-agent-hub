@@ -243,3 +243,92 @@ def test_save_load_session_agents() -> None:
         finally:
             daemon.SESSION_AGENTS_FILE = original_file
             daemon.AGENT_HUB_DIR = original_dir
+
+
+# =============================================================================
+# Tests for get_sessions_from_db (SQLite session discovery)
+# =============================================================================
+
+
+def test_get_sessions_from_db_returns_none_when_db_missing() -> None:
+    """Verify None returned when the SQLite database file doesn't exist."""
+    from opencode_agent_hub import daemon
+
+    original = daemon.OPENCODE_DB_PATH
+    try:
+        daemon.OPENCODE_DB_PATH = Path("/nonexistent/opencode.db")
+        result = daemon.get_sessions_from_db()
+        assert result is None
+    finally:
+        daemon.OPENCODE_DB_PATH = original
+
+
+def test_get_sessions_from_db_reads_sessions(tmp_path: Path) -> None:
+    """Verify sessions are read from a real SQLite database."""
+    import sqlite3
+
+    from opencode_agent_hub import daemon
+
+    db_path = tmp_path / "opencode.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "CREATE TABLE session ("
+        "  id TEXT PRIMARY KEY,"
+        "  slug TEXT,"
+        "  project_id TEXT,"
+        "  directory TEXT,"
+        "  title TEXT,"
+        "  version TEXT,"
+        "  time_created INTEGER,"
+        "  time_updated INTEGER,"
+        "  time_archived INTEGER"
+        ")"
+    )
+    conn.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "ses_test123",
+            "cool-slug",
+            "proj_abc",
+            "/home/user/project",
+            "Test Session",
+            "1.0.0",
+            1700000000000,
+            1700000060000,
+            None,
+        ),
+    )
+    # Archived session should be excluded
+    conn.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "ses_archived",
+            "old-slug",
+            "proj_abc",
+            "/home/user/project",
+            "Archived",
+            "1.0.0",
+            1699000000000,
+            1699000060000,
+            1699000120000,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    original = daemon.OPENCODE_DB_PATH
+    try:
+        daemon.OPENCODE_DB_PATH = db_path
+        result = daemon.get_sessions_from_db()
+        assert result is not None
+        assert len(result) == 1
+        session = result[0]
+        assert session["id"] == "ses_test123"
+        assert session["slug"] == "cool-slug"
+        assert session["projectID"] == "proj_abc"
+        assert session["directory"] == "/home/user/project"
+        assert session["title"] == "Test Session"
+        assert session["time"]["created"] == 1700000000000
+        assert session["time"]["updated"] == 1700000060000
+    finally:
+        daemon.OPENCODE_DB_PATH = original
