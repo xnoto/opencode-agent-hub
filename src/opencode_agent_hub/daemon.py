@@ -998,10 +998,10 @@ def gc_oriented_sessions() -> int:
 
 
 def gc_session_agents() -> int:
-    """Remove session-agent mappings for sessions that no longer exist.
+    """Remove session-agent mappings for sessions that no longer exist or are stale.
 
-    This prevents the SESSION_AGENTS mapping from growing unbounded
-    and ensures stale session references are cleaned up.
+    Cleans up mappings for sessions that are either missing from the database
+    or haven't been updated within the stale threshold (AGENT_STALE_SECONDS).
 
     Returns number of mappings cleaned.
     """
@@ -1010,16 +1010,28 @@ def gc_session_agents() -> int:
     if not SESSION_AGENTS:
         return 0
 
-    # Get current sessions from API
     current_sessions = get_sessions()
     if current_sessions is None:
-        return 0  # Don't clear on API failure
+        return 0  # Don't clear on DB failure
 
-    # Build set of current session IDs
-    current_ids = {s.get("id", "") for s in current_sessions if s.get("id")}
+    now_ms = int(time.time() * 1000)
+    stale_threshold_ms = AGENT_STALE_SECONDS * 1000
 
-    # Find session-agent mappings for non-existent sessions
-    stale_session_ids = [sid for sid in SESSION_AGENTS if sid not in current_ids]
+    # Build set of active session IDs (exist AND updated recently)
+    active_ids = set()
+    for s in current_sessions:
+        session_id = s.get("id", "")
+        if not session_id:
+            continue
+        updated = s.get("time", {}).get("updated", 0)
+        if now_ms - updated < stale_threshold_ms:
+            active_ids.add(session_id)
+
+    # Always keep coordinator session
+    if COORDINATOR_SESSION_ID:
+        active_ids.add(COORDINATOR_SESSION_ID)
+
+    stale_session_ids = [sid for sid in SESSION_AGENTS if sid not in active_ids]
 
     if stale_session_ids:
         for sid in stale_session_ids:

@@ -203,14 +203,20 @@ def print_messages(w: int) -> None:
         print()
         return
 
-    # Get messages sorted by modification time (newest first)
+    # Collect messages from both pending and archive directories
     messages = []
-    for msg_file in MESSAGES_DIR.glob("*.json"):
-        if msg_file.is_file():
-            data = load_json(msg_file)
-            if data:
-                data["_mtime"] = msg_file.stat().st_mtime
-                messages.append(data)
+    archive_dir = MESSAGES_DIR / "archive"
+    for msg_dir in [MESSAGES_DIR, archive_dir]:
+        if not msg_dir.exists():
+            continue
+        is_archive = msg_dir == archive_dir
+        for msg_file in msg_dir.glob("*.json"):
+            if msg_file.is_file():
+                data = load_json(msg_file)
+                if data:
+                    data["_mtime"] = msg_file.stat().st_mtime
+                    data["_archived"] = is_archive
+                    messages.append(data)
 
     messages.sort(key=lambda x: x.get("_mtime", 0), reverse=True)
 
@@ -236,7 +242,8 @@ def print_messages(w: int) -> None:
         is_read = msg.get("read", False)
         priority = msg.get("priority", "normal")
 
-        marker = " " if is_read else "●"
+        is_archived = msg.get("_archived", False)
+        marker = "▪" if is_archived else (" " if is_read else "●")
         priority_marker = "!" if priority == "urgent" else " "
 
         print(
@@ -352,7 +359,8 @@ def render_dashboard() -> None:
 
 def main() -> None:
     # Ensure directories exist
-    for d in [MESSAGES_DIR, AGENTS_DIR, THREADS_DIR]:
+    archive_dir = MESSAGES_DIR / "archive"
+    for d in [MESSAGES_DIR, archive_dir, AGENTS_DIR, THREADS_DIR]:
         d.mkdir(parents=True, exist_ok=True)
 
     # Set up filesystem observer
@@ -360,6 +368,7 @@ def main() -> None:
     handler = HubEventHandler()
 
     observer.schedule(handler, str(MESSAGES_DIR), recursive=False)
+    observer.schedule(handler, str(archive_dir), recursive=False)
     observer.schedule(handler, str(AGENTS_DIR), recursive=False)
     observer.schedule(handler, str(THREADS_DIR), recursive=False)
     # Watch HUB_DIR itself for metrics.prom changes

@@ -158,27 +158,35 @@ def test_find_session_for_agent_fallback_to_session_agents() -> None:
 
 
 def test_gc_session_agents_removes_stale() -> None:
-    """Verify gc_session_agents removes mappings for non-existent sessions."""
+    """Verify gc_session_agents removes mappings for missing and stale sessions."""
+    import time as _time
+
     from opencode_agent_hub import daemon
 
-    # Set up session agents with one that doesn't exist anymore
+    now_ms = int(_time.time() * 1000)
+
+    # Set up session agents: one active, one missing from DB, one in DB but stale
     daemon.SESSION_AGENTS = {
         "ses_active": {"agentId": "active-agent", "directory": "/active"},
+        "ses_missing": {"agentId": "missing-agent", "directory": "/missing"},
         "ses_stale": {"agentId": "stale-agent", "directory": "/stale"},
     }
 
-    # Mock get_sessions to return only one session
     with mock.patch.object(daemon, "get_sessions") as mock_get_sessions:
         mock_get_sessions.return_value = [
-            {"id": "ses_active", "directory": "/active"},
+            # Active: updated recently
+            {"id": "ses_active", "directory": "/active", "time": {"updated": now_ms}},
+            # Stale: updated 2 hours ago (beyond AGENT_STALE_SECONDS=3600)
+            {"id": "ses_stale", "directory": "/stale", "time": {"updated": now_ms - 7200_000}},
+            # ses_missing not returned at all
         ]
 
-        # Mock save to avoid file I/O
         with mock.patch.object(daemon, "save_session_agents"):
             cleaned = daemon.gc_session_agents()
 
-    assert cleaned == 1
+    assert cleaned == 2
     assert "ses_active" in daemon.SESSION_AGENTS
+    assert "ses_missing" not in daemon.SESSION_AGENTS
     assert "ses_stale" not in daemon.SESSION_AGENTS
 
 
