@@ -26,9 +26,10 @@ Features:
 
 Hub server:
 - Daemon auto-starts `opencode serve --port 4096` if not already running
-- Single hub server provides HTTP API access to ALL OpenCode sessions
-- Any `opencode` TUI instance creates sessions visible via hub API
-- Daemon injects messages via POST /session/{id}/message
+- Hub server uses the user's normal OpenCode config (no isolation)
+- TUI instances discover and connect to the hub server for message injection
+- Session discovery uses direct SQLite queries (hub API listing is stale)
+- Daemon injects messages via POST /session/{id}/prompt_async
 
 Wake behavior: ALL messages wake agents (noReply: false)
 - Agents don't need hub protocol in their definitions
@@ -59,6 +60,7 @@ import os
 import queue
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -90,6 +92,7 @@ THREADS_DIR = AGENT_HUB_DIR / "threads"
 AGENTS_DIR = AGENT_HUB_DIR / "agents"
 ORIENTED_SESSIONS_FILE = AGENT_HUB_DIR / "oriented_sessions.json"
 OPENCODE_DATA_DIR = Path.home() / ".local/share/opencode"
+OPENCODE_DB_PATH = OPENCODE_DATA_DIR / "opencode.db"
 OPENCODE_STORAGE_DIR = OPENCODE_DATA_DIR / "storage"  # Watch all project subdirs, not just global
 CONFIG_DIR = Path.home() / ".config" / "agent-hub-daemon"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -246,8 +249,8 @@ RATE_LIMIT_COOLDOWN_SECONDS = int(
 # COORDINATOR_BOOTSTRAP_REQUIRED: Fail daemon startup if coordinator bootstrap is not ready (default: false)
 # COORDINATOR_DIR: Directory for coordinator session (default: ~/.agent-hub/coordinator)
 # COORDINATOR_AGENTS_MD: Custom path to coordinator AGENTS.md (default: auto-detect)
-# Note: The coordinator uses the global OpenCode default model. Configure your
-# opencode.json to set the desired model for all API-created sessions.
+# Note: The coordinator model is set in its project-level opencode.json
+# at COORDINATOR_DIR/opencode.json (default: opencode/minimax-m2.5-free).
 COORDINATOR_ENABLED = bool(
     _get_config_value("AGENT_HUB_COORDINATOR", ["coordinator", "enabled"], True, _CONFIG, bool)
 )
@@ -1309,33 +1312,15 @@ def _kill_opencode_serve_pids(pids: list[int]) -> None:
             continue
 
 
-def _setup_hub_server_config() -> Path:
-    """Create config directory for hub server with default model.
-
-    Creates a minimal opencode.json that sets the default model for all
-    API-created sessions. Uses XDG_CONFIG_HOME to isolate from user config.
-    """
-    config_dir = AGENT_HUB_DIR / "hub-server-config" / "opencode"
-    config_dir.mkdir(parents=True, exist_ok=True)
-
-    config_file = config_dir / "opencode.json"
-    config_content = {
-        "$schema": "https://opencode.ai/config.json",
-        "model": "opencode/minimax-m2.5-free",
-    }
-
-    config_file.write_text(json.dumps(config_content, indent=2))
-    return config_dir.parent
-
-
 def start_hub_server() -> subprocess.Popen[bytes] | None:
     """Launch OpenCode hub server in headless mode.
 
-    The hub server provides HTTP API access to ALL OpenCode sessions,
-    allowing the daemon to inject messages into any session.
+    The hub server provides HTTP API access for message injection into sessions.
+    It uses the user's normal OpenCode config (no XDG_CONFIG_HOME isolation) so
+    that TUI instances discover and connect to it, enabling prompt_async injection.
 
-    Uses a custom XDG_CONFIG_HOME to set the default model for all
-    API-created sessions without affecting the user's global config.
+    Session discovery is handled separately via direct SQLite queries, since the
+    hub server's listing API only returns sessions it manages internally.
     """
     global HUB_SERVER_PROCESS
 
@@ -1351,10 +1336,6 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
         log.error("opencode binary not found in PATH")
         return None
 
-    # Create hub server config with default model
-    hub_config_home = _setup_hub_server_config()
-    log.info(f"Hub server config: {hub_config_home}")
-
     # Launch headless server
     try:
         # Redirect stdout/stderr to log files
@@ -1362,10 +1343,6 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
         DAEMON_LOG_DIR.mkdir(parents=True, exist_ok=True)
         hub_stdout = open(DAEMON_LOG_DIR / "hub-stdout.log", "a")  # noqa: SIM115
         hub_stderr = open(HUB_STDERR_LOG_FILE, "a")  # noqa: SIM115
-
-        # Use XDG_CONFIG_HOME to set default model without affecting global config
-        env = os.environ.copy()
-        env["XDG_CONFIG_HOME"] = str(hub_config_home)
 
         HUB_SERVER_PROCESS = subprocess.Popen(
             [
@@ -1378,7 +1355,6 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
             stdout=hub_stdout,
             stderr=hub_stderr,
             start_new_session=True,  # Detach from terminal
-            env=env,
         )
 
         # Wait for server to start
@@ -2010,188 +1986,69 @@ def poll_coordinator_cost() -> None:
 # =============================================================================
 
 
-def get_sessions_from_cli() -> list[dict[str, Any]] | None:
-    """Fetch sessions using opencode CLI (queries database directly).
+def get_sessions_from_db() -> list[dict[str, Any]] | None:
+    """Fetch sessions directly from OpenCode's SQLite database.
 
-    This captures sessions that exist in the database but don't have
-    filesystem representation, which the HTTP API may miss.
+    This is the primary session discovery mechanism. The hub server's HTTP API
+    only returns sessions it created or knew about at startup — it does NOT
+    see sessions created by independent TUI processes. Querying the shared
+    SQLite database directly sees ALL sessions regardless of which process
+    created them.
     """
-    opencode_bin = shutil.which("opencode")
-    if not opencode_bin:
-        log.debug("opencode binary not found for CLI session discovery")
+    if not OPENCODE_DB_PATH.exists():
+        log.warning(f"OpenCode database not found: {OPENCODE_DB_PATH}")
         return None
 
     try:
-        result = subprocess.run(
-            [opencode_bin, "session", "list"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            log.debug(f"opencode session list failed: {result.stderr}")
-            return None
+        # Use WAL mode and read-only to avoid interfering with OpenCode processes
+        conn = sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True, timeout=5)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT id, slug, project_id, directory, title, version,"
+                " time_created, time_updated FROM session"
+                " WHERE time_archived IS NULL"
+                " ORDER BY time_updated DESC"
+            ).fetchall()
 
-        # Parse the tabular output
-        sessions: list[dict[str, Any]] = []
-        lines = result.stdout.strip().split("\n")
+            sessions: list[dict[str, Any]] = []
+            for row in rows:
+                sessions.append(
+                    {
+                        "id": row["id"],
+                        "slug": row["slug"],
+                        "projectID": row["project_id"],
+                        "directory": row["directory"],
+                        "title": row["title"],
+                        "version": row["version"] or "",
+                        "time": {
+                            "created": row["time_created"],
+                            "updated": row["time_updated"],
+                        },
+                    }
+                )
 
-        # Skip header line if present (contains "Session ID" or similar)
-        start_idx = 0
-        if lines and ("Session ID" in lines[0] or "session" in lines[0].lower()):
-            start_idx = 1
-
-        for line in lines[start_idx:]:
-            # Parse format: "ses_XXX  Title  Updated"
-            # Session ID is first 32 characters (ses_ + 28 chars)
-            parts = line.strip().split(None, 1)
-            if len(parts) < 1:
-                continue
-
-            session_id = parts[0].strip()
-            if not session_id.startswith("ses_"):
-                continue
-
-            # Remaining parts contain title and timestamp
-            remainder = parts[1] if len(parts) > 1 else ""
-
-            # Try to extract title (everything before timestamp pattern)
-            title = remainder
-            if "  " in remainder:
-                # Split on double space which usually separates title from timestamp
-                title_parts = remainder.rsplit("  ", 1)
-                title = title_parts[0].strip()
-
-            # Set timestamps to "now" so CLI-discovered sessions pass time filters
-            # CLI sessions are by definition "active" (they exist in the database)
-            now_ms = int(time.time() * 1000)
-            sessions.append(
-                {
-                    "id": session_id,
-                    "title": title,
-                    "directory": "",  # Will be filled in later if needed
-                    "projectID": "",  # Will be determined from directory mapping
-                    "time": {"created": now_ms, "updated": now_ms},  # Mark as recently active
-                }
-            )
-
-        if sessions:
-            log.debug(f"Discovered {len(sessions)} sessions via CLI")
+            log.debug(f"Discovered {len(sessions)} sessions from SQLite DB")
             return sessions
+        finally:
+            conn.close()
 
-    except subprocess.TimeoutExpired:
-        log.warning("opencode session list timed out")
+    except sqlite3.OperationalError as e:
+        log.warning(f"SQLite session query failed (DB may be locked): {e}")
     except Exception as e:
-        log.debug(f"CLI session discovery failed: {e}")
+        log.warning(f"SQLite session discovery failed: {e}")
 
     return None
-
-
-def _merge_session_sources(
-    http_sessions: list[dict[str, Any]],
-    cli_sessions: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Merge sessions from HTTP API and CLI, preferring HTTP data for duplicates.
-
-    HTTP sessions have complete metadata (timestamps, projectID, directory).
-    CLI sessions may discover additional sessions missing from HTTP.
-    """
-    # Index HTTP sessions by ID for lookup
-    http_by_id: dict[str, dict[str, Any]] = {
-        s.get("id", ""): s for s in http_sessions if s.get("id")
-    }
-
-    merged: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-
-    # First, add all HTTP sessions (most complete data)
-    for s in http_sessions:
-        sid = s.get("id")
-        if sid and sid not in seen_ids:
-            merged.append(s)
-            seen_ids.add(sid)
-
-    # Then add CLI-only sessions (fill in missing ones)
-    for s in cli_sessions:
-        sid = s.get("id")
-        if sid and sid not in seen_ids:
-            # If we have partial data from CLI but HTTP has more complete version, use HTTP
-            if sid in http_by_id:
-                merged.append(http_by_id[sid])
-            else:
-                # CLI-only session - use CLI data even if incomplete
-                merged.append(s)
-                log.debug(f"Session {sid[:12]} discovered via CLI but not HTTP API")
-            seen_ids.add(sid)
-
-    return merged
 
 
 def get_sessions_uncached() -> list[dict[str, Any]] | None:
     """Fetch active OpenCode sessions across all projects.
 
-    Uses hybrid approach:
-    1. Query CLI for all sessions (includes DB-only sessions)
-    2. Query HTTP API for complete metadata
-    3. Merge results, preferring HTTP data for duplicates
+    Queries the shared SQLite database directly for reliable session discovery.
+    The hub server HTTP API only sees sessions it manages — independent TUI
+    sessions are invisible to it. SQLite sees everything.
     """
-    # Try CLI discovery first (may find sessions HTTP misses)
-    cli_sessions = get_sessions_from_cli()
-
-    # Try HTTP API discovery (has complete metadata)
-    http_sessions: list[dict[str, Any]] = []
-    try:
-        # 1. Get all project IDs
-        resp = requests.get(f"{OPENCODE_URL}/project", timeout=5)
-        resp.raise_for_status()
-        projects = cast(list[dict[str, Any]], resp.json())
-        project_ids = [p.get("id") for p in projects if p.get("id")]
-
-        # Always include "global" just in case it's not in the list
-        if "global" not in project_ids:
-            project_ids.append("global")
-
-        # 2. Fetch sessions for each project
-        seen_ids: set[str] = set()
-        for pid in project_ids:
-            s_resp = requests.get(f"{OPENCODE_URL}/session", params={"projectID": pid}, timeout=5)
-            if s_resp.status_code != 200:
-                continue
-
-            sessions = s_resp.json()
-            if not isinstance(sessions, list):
-                continue
-
-            for s in sessions:
-                sid = s.get("id")
-                if sid and sid not in seen_ids:
-                    http_sessions.append(s)
-                    seen_ids.add(sid)
-
-    except requests.RequestException as e:
-        log.warning(f"HTTP session discovery failed: {e}")
-        # If HTTP fails but CLI succeeded, use CLI data
-        if cli_sessions:
-            log.info(f"Using CLI-only session discovery ({len(cli_sessions)} sessions)")
-            return cli_sessions
-        return None
-
-    # Merge both sources
-    if cli_sessions and http_sessions:
-        merged = _merge_session_sources(http_sessions, cli_sessions)
-        cli_only_count = len(
-            [s for s in cli_sessions if s.get("id") not in {h.get("id") for h in http_sessions}]
-        )
-        if cli_only_count > 0:
-            log.info(f"Discovered {cli_only_count} additional sessions via CLI (not in HTTP API)")
-        return merged
-    elif http_sessions:
-        return http_sessions
-    elif cli_sessions:
-        log.info(f"Using CLI-only session discovery ({len(cli_sessions)} sessions)")
-        return cli_sessions
-
-    return None
+    return get_sessions_from_db()
 
 
 def get_sessions() -> list[dict[str, Any]] | None:

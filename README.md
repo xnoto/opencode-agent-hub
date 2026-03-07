@@ -107,10 +107,10 @@ Agent A                      Daemon                        Agent B
 
 The daemon auto-starts `opencode serve --port 4096` which provides:
 
-- **Session listing**: `GET /session` - returns all active OpenCode sessions
 - **Message injection**: `POST /session/{id}/prompt_async` - injects a prompt that wakes the agent
+- **Session creation**: `POST /session` - used to create the coordinator session
 
-This hub server sees **all** OpenCode TUI instances on the machine, allowing the daemon to route messages to any session regardless of which terminal it's running in. The coordinator also runs as a session on this hub server, created via `opencode run --attach`.
+Session discovery uses **direct SQLite queries** against OpenCode's shared database (`~/.local/share/opencode/opencode.db`), since the hub server's listing API only returns sessions it manages internally. TUI instances connect to the hub server automatically, enabling prompt injection into any session.
 
 ### Coordination Flow
 
@@ -543,7 +543,7 @@ Configuration via environment variables:
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Directory used for the coordinator session |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom path to coordinator AGENTS.md |
 
-The coordinator model is configured via the hub server's isolated `opencode.json` config (default: `opencode/minimax-m2.5-free`). To change it, edit `~/.agent-hub/hub-server-config/opencode/opencode.json`.
+The coordinator model is set in its project-level `opencode.json` at `~/.agent-hub/coordinator/opencode.json` (default: `opencode/minimax-m2.5-free`). To change it, edit that file or provide a custom template via `AGENT_HUB_COORDINATOR_AGENTS_MD`.
 
 #### Custom Coordinator Instructions
 
