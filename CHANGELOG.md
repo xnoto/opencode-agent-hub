@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.3](https://github.com/xnoto/opencode-agent-hub/compare/v1.3.2...v1.3.3) (2026-03-23)
+
+
+### Bug Fixes
+
+* **daemon:** eliminate race conditions in agent file I/O ([7ea0b67](https://github.com/xnoto/opencode-agent-hub/commit/7ea0b67b16a5359f1a14071bd6313c24f2afbd97))
+
 ## [1.3.2](https://github.com/xnoto/opencode-agent-hub/compare/v1.3.1...v1.3.2) (2026-03-07)
 
 
