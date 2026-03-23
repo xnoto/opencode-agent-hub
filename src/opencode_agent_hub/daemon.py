@@ -78,6 +78,40 @@ import requests
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+
+# =============================================================================
+# Atomic File Operations
+# =============================================================================
+
+def atomic_write_json(path: Path, data: Any, indent: int | None = 2) -> None:
+    """Write JSON to file atomically using temp file + rename.
+    
+    This prevents readers from seeing partial/empty files during writes.
+    POSIX guarantees rename() is atomic - readers see old or new, never partial.
+    
+    Args:
+        path: Target file path
+        data: JSON-serializable data
+        indent: JSON indentation (None for compact, 2 for pretty-print)
+    
+    Raises:
+        OSError: If write fails
+    """
+    json_str = json.dumps(data, indent=indent)
+    temp_path = path.with_suffix(f".tmp.{os.getpid()}")
+    
+    try:
+        # Write to temp file first
+        temp_path.write_text(json_str, encoding="utf-8")
+        
+        # Atomic rename - readers see either old or new, never partial
+        temp_path.rename(path)
+    except Exception:
+        # Clean up temp file on any error
+        with suppress(OSError):
+            temp_path.unlink()
+        raise
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -684,7 +718,7 @@ def save_oriented_sessions() -> None:
     """Save oriented sessions to disk."""
     try:
         AGENT_HUB_DIR.mkdir(parents=True, exist_ok=True)
-        ORIENTED_SESSIONS_FILE.write_text(json.dumps(list(ORIENTED_SESSIONS)))
+        atomic_write_json(ORIENTED_SESSIONS_FILE, list(ORIENTED_SESSIONS), indent=None)
     except OSError as e:
         log.warning(f"Failed to save oriented sessions: {e}")
 
@@ -693,7 +727,7 @@ def save_session_agents() -> None:
     """Save session-to-agent mapping to disk."""
     try:
         AGENT_HUB_DIR.mkdir(parents=True, exist_ok=True)
-        SESSION_AGENTS_FILE.write_text(json.dumps(SESSION_AGENTS, indent=2))
+        atomic_write_json(SESSION_AGENTS_FILE, SESSION_AGENTS, indent=2)
     except OSError as e:
         log.warning(f"Failed to save session agents: {e}")
 
@@ -784,17 +818,63 @@ def record_message_sent(agent_id: str) -> None:
 
 
 def load_agents() -> dict[str, dict[str, Any]]:
-    """Load all registered agents, keyed by agent ID."""
+    """Load all registered agents, keyed by agent ID.
+    
+    Retries on JSON decode errors to handle transient file states
+    when external writers are updating agent files.
+    """
     agents: dict[str, dict[str, Any]] = {}
     if not AGENTS_DIR.exists():
         return agents
     for f in AGENTS_DIR.glob("*.json"):
-        try:
-            agent = json.loads(f.read_text())
+        agent = _load_agent_with_retry(f)
+        if agent:
             agents[agent["id"]] = agent
-        except (json.JSONDecodeError, KeyError) as e:
-            log.warning(f"Failed to load agent {f}: {e}")
     return agents
+
+
+def _load_agent_with_retry(path: Path, max_retries: int = 3, base_delay: float = 0.05) -> dict[str, Any] | None:
+    """Load a single agent file with retry for transient errors.
+    
+    Args:
+        path: Path to agent JSON file
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay between retries (doubles each attempt)
+    
+    Returns:
+        Agent dict or None if loading failed after all retries
+    """
+    for attempt in range(max_retries):
+        try:
+            content = path.read_text()
+            if not content.strip():
+                # File is empty - writer hasn't finished yet
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    log.debug(f"Agent file {path.name} empty, retrying in {delay:.0f}ms (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                log.warning(f"Agent file {path.name} is empty after {max_retries} attempts")
+                return None
+            
+            agent = json.loads(content)
+            if "id" not in agent:
+                log.warning(f"Agent file {path.name} missing 'id' field")
+                return None
+            return agent
+            
+        except json.JSONDecodeError:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                log.debug(f"Failed to parse agent {path.name}, retrying in {delay:.0f}ms (attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+            else:
+                log.warning(f"Failed to load agent {path.name}: JSON decode error after {max_retries} attempts")
+        except OSError as e:
+            log.warning(f"Failed to read agent {path.name}: {e}")
+            return None
+    
+    return None
 
 
 def is_agent_active(agent: dict[str, Any]) -> bool:
@@ -825,7 +905,7 @@ def save_thread(thread: dict[str, Any]) -> None:
     """Save a thread."""
     THREADS_DIR.mkdir(parents=True, exist_ok=True)
     path = THREADS_DIR / f"{thread['id']}.json"
-    path.write_text(json.dumps(thread, indent=2))
+    atomic_write_json(path, thread, indent=2)
 
 
 def create_thread(msg: dict[str, Any]) -> dict[str, Any]:
@@ -1793,10 +1873,10 @@ def start_coordinator() -> bool:
             "status": "active",
             "lastSeen": int(time.time() * 1000),
         }
-        # Write agent file directly
+        # Write agent file directly (atomic write)
         AGENTS_DIR.mkdir(parents=True, exist_ok=True)
         agent_file = AGENTS_DIR / "coordinator.json"
-        agent_file.write_text(json.dumps(coordinator_agent, indent=2))
+        atomic_write_json(agent_file, coordinator_agent, indent=2)
         log.info("Registered coordinator as agent 'coordinator'")
 
         # Send bootstrap prompt synchronously before waiting for READY.
@@ -2246,10 +2326,10 @@ def get_or_create_agent_for_directory(
         "autoCreated": True,
     }
 
-    # Save to disk
+    # Save to disk (atomic write to prevent readers seeing partial files)
     agent_file = AGENTS_DIR / f"{agent_id}.json"
     try:
-        agent_file.write_text(json.dumps(agent, indent=2))
+        atomic_write_json(agent_file, agent, indent=2)
         agents[agent_id] = agent
         metrics.inc("agent_hub_agents_auto_created_total")
         metrics.set_gauge("agent_hub_active_agents", len(agents))
@@ -2332,10 +2412,10 @@ def get_or_create_agent_for_session(
     }
     save_session_agents()
 
-    # Save agent to disk
+    # Save agent to disk (atomic write to prevent readers seeing partial files)
     agent_file = AGENTS_DIR / f"{agent_id}.json"
     try:
-        agent_file.write_text(json.dumps(agent, indent=2))
+        atomic_write_json(agent_file, agent, indent=2)
         agents[agent_id] = agent
         metrics.inc("agent_hub_agents_auto_created_total")
         metrics.set_gauge("agent_hub_active_agents", len(agents))
