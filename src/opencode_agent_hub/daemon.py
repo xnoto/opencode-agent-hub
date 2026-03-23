@@ -78,32 +78,31 @@ import requests
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-
 # =============================================================================
 # Atomic File Operations
 # =============================================================================
 
 def atomic_write_json(path: Path, data: Any, indent: int | None = 2) -> None:
     """Write JSON to file atomically using temp file + rename.
-    
+
     This prevents readers from seeing partial/empty files during writes.
     POSIX guarantees rename() is atomic - readers see old or new, never partial.
-    
+
     Args:
         path: Target file path
         data: JSON-serializable data
         indent: JSON indentation (None for compact, 2 for pretty-print)
-    
+
     Raises:
         OSError: If write fails
     """
     json_str = json.dumps(data, indent=indent)
     temp_path = path.with_suffix(f".tmp.{os.getpid()}")
-    
+
     try:
         # Write to temp file first
         temp_path.write_text(json_str, encoding="utf-8")
-        
+
         # Atomic rename - readers see either old or new, never partial
         temp_path.rename(path)
     except Exception:
@@ -819,7 +818,7 @@ def record_message_sent(agent_id: str) -> None:
 
 def load_agents() -> dict[str, dict[str, Any]]:
     """Load all registered agents, keyed by agent ID.
-    
+
     Retries on JSON decode errors to handle transient file states
     when external writers are updating agent files.
     """
@@ -835,12 +834,12 @@ def load_agents() -> dict[str, dict[str, Any]]:
 
 def _load_agent_with_retry(path: Path, max_retries: int = 3, base_delay: float = 0.05) -> dict[str, Any] | None:
     """Load a single agent file with retry for transient errors.
-    
+
     Args:
         path: Path to agent JSON file
         max_retries: Maximum number of retry attempts
         base_delay: Initial delay between retries (doubles each attempt)
-    
+
     Returns:
         Agent dict or None if loading failed after all retries
     """
@@ -856,13 +855,13 @@ def _load_agent_with_retry(path: Path, max_retries: int = 3, base_delay: float =
                     continue
                 log.warning(f"Agent file {path.name} is empty after {max_retries} attempts")
                 return None
-            
+
             agent = json.loads(content)
             if "id" not in agent:
                 log.warning(f"Agent file {path.name} missing 'id' field")
                 return None
             return agent
-            
+
         except json.JSONDecodeError:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
@@ -873,7 +872,7 @@ def _load_agent_with_retry(path: Path, max_retries: int = 3, base_delay: float =
         except OSError as e:
             log.warning(f"Failed to read agent {path.name}: {e}")
             return None
-    
+
     return None
 
 
