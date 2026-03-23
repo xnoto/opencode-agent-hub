@@ -82,6 +82,7 @@ from watchdog.observers import Observer
 # Atomic File Operations
 # =============================================================================
 
+
 def atomic_write_json(path: Path, data: Any, indent: int | None = 2) -> None:
     """Write JSON to file atomically using temp file + rename.
 
@@ -110,6 +111,7 @@ def atomic_write_json(path: Path, data: Any, indent: int | None = 2) -> None:
         with suppress(OSError):
             temp_path.unlink()
         raise
+
 
 # =============================================================================
 # Configuration
@@ -832,7 +834,9 @@ def load_agents() -> dict[str, dict[str, Any]]:
     return agents
 
 
-def _load_agent_with_retry(path: Path, max_retries: int = 3, base_delay: float = 0.05) -> dict[str, Any] | None:
+def _load_agent_with_retry(
+    path: Path, max_retries: int = 3, base_delay: float = 0.05
+) -> dict[str, Any] | None:
     """Load a single agent file with retry for transient errors.
 
     Args:
@@ -849,8 +853,10 @@ def _load_agent_with_retry(path: Path, max_retries: int = 3, base_delay: float =
             if not content.strip():
                 # File is empty - writer hasn't finished yet
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    log.debug(f"Agent file {path.name} empty, retrying in {delay:.0f}ms (attempt {attempt + 1}/{max_retries})")
+                    delay = base_delay * (2**attempt)
+                    log.debug(
+                        f"Agent file {path.name} empty, retrying in {delay:.0f}ms (attempt {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(delay)
                     continue
                 log.warning(f"Agent file {path.name} is empty after {max_retries} attempts")
@@ -864,11 +870,15 @@ def _load_agent_with_retry(path: Path, max_retries: int = 3, base_delay: float =
 
         except json.JSONDecodeError:
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                log.debug(f"Failed to parse agent {path.name}, retrying in {delay:.0f}ms (attempt {attempt + 1}/{max_retries})")
+                delay = base_delay * (2**attempt)
+                log.debug(
+                    f"Failed to parse agent {path.name}, retrying in {delay:.0f}ms (attempt {attempt + 1}/{max_retries})"
+                )
                 time.sleep(delay)
             else:
-                log.warning(f"Failed to load agent {path.name}: JSON decode error after {max_retries} attempts")
+                log.warning(
+                    f"Failed to load agent {path.name}: JSON decode error after {max_retries} attempts"
+                )
         except OSError as e:
             log.warning(f"Failed to read agent {path.name}: {e}")
             return None
