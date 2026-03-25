@@ -245,3 +245,4 @@ jobs:
             - refresh tarball SHA256
           branch: "auto/update-homebrew-${{ steps.release.outputs.tag }}"
           delete-branch: true
+          sign-commits: true
