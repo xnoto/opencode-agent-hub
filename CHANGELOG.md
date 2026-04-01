@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.4.0...v1.4.1) (2026-04-01)
+
+
+### Bug Fixes
+
+* **daemon:** preserve agent context when injecting messages ([#72](https://github.com/xnoto/opencode-agent-hub/issues/72)) ([b491bc7](https://github.com/xnoto/opencode-agent-hub/commit/b491bc795867067b150b679056a2c8152a47ba16))
+
 ## [1.4.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.3.3...v1.4.0) (2026-03-25)
 
 
