@@ -3,10 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
-from typing import Any
 from unittest import mock
-
-import pytest
 
 
 def test_inject_message_passes_agent_to_payload() -> None:
@@ -62,7 +59,6 @@ def test_inject_message_omits_agent_when_not_provided() -> None:
 def test_inject_message_task_passes_agent() -> None:
     """Verify InjectionTask correctly passes agent through queue."""
     from opencode_agent_hub import daemon
-    import queue
 
     # Clear queue
     while not daemon._injection_queue.empty():
@@ -197,15 +193,17 @@ def test_orient_session_passes_agent() -> None:
         agent = {"id": "target-agent", "projectPath": "/test", "sessionId": "ses_test"}
         all_agents = {"target-agent": agent}
 
-        with mock.patch.object(daemon, "inject_message") as mock_inject:
-            with mock.patch.object(daemon, "notify_coordinator_new_agent"):
-                daemon.orient_session("ses_test", agent, all_agents)
+        with (
+            mock.patch.object(daemon, "inject_message") as mock_inject,
+            mock.patch.object(daemon, "notify_coordinator_new_agent"),
+        ):
+            daemon.orient_session("ses_test", agent, all_agents)
 
-                # Should inject with target agent ID
-                mock_inject.assert_called_once()
-                call_args = mock_inject.call_args
-                assert call_args[0][0] == "ses_test"
-                assert call_args[1]["agent"] == "target-agent"
+            # Should inject with target agent ID
+            mock_inject.assert_called_once()
+            call_args = mock_inject.call_args
+            assert call_args[0][0] == "ses_test"
+            assert call_args[1]["agent"] == "target-agent"
     finally:
         daemon.ORIENTED_SESSIONS = original_oriented
 
@@ -262,17 +260,19 @@ def test_notify_coordinator_passes_coordinator_agent() -> None:
     try:
         daemon.COORDINATOR_SESSION_ID = "ses_coordinator"
 
-        with mock.patch.object(daemon, "inject_message") as mock_inject:
-            with mock.patch.object(daemon, "_wait_for_coordinator_activity", return_value=True):
-                daemon.notify_coordinator_new_agent("new-agent", "/new/path")
+        with (
+            mock.patch.object(daemon, "inject_message") as mock_inject,
+            mock.patch.object(daemon, "_wait_for_coordinator_activity", return_value=True),
+        ):
+            daemon.notify_coordinator_new_agent("new-agent", "/new/path")
 
-                # Should be called twice (initial + retry check)
-                assert mock_inject.call_count == 1
+            # Should be called twice (initial + retry check)
+            assert mock_inject.call_count == 1
 
-                # Both calls should use "coordinator" as agent
-                call = mock_inject.call_args
-                assert call[0][0] == "ses_coordinator"
-                assert call[1]["agent"] == "coordinator"
+            # Both calls should use "coordinator" as agent
+            call = mock_inject.call_args
+            assert call[0][0] == "ses_coordinator"
+            assert call[1]["agent"] == "coordinator"
     finally:
         daemon.COORDINATOR_SESSION_ID = original_session_id
 

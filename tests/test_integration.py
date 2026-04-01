@@ -4,10 +4,7 @@ import json
 import sqlite3
 import tempfile
 from pathlib import Path
-from typing import Any
 from unittest import mock
-
-import pytest
 
 
 def test_full_flow_agent_detected_and_used() -> None:
