@@ -113,6 +113,36 @@ def atomic_write_json(path: Path, data: Any, indent: int | None = 2) -> None:
         raise
 
 
+def validate_path_within_dir(path: Path, allowed_dir: Path) -> Path:
+    """Validate that a path is within an allowed directory.
+
+    This prevents path traversal attacks where malicious filenames like
+    '../../../etc/passwd' could be used to write files outside intended
+    directories.
+
+    Args:
+        path: The path to validate
+        allowed_dir: The directory that must contain the path
+
+    Returns:
+        The resolved path if valid
+
+    Raises:
+        ValueError: If the path is outside the allowed directory
+    """
+    # Resolve to absolute paths (handles .., symlinks, etc.)
+    resolved_path = path.resolve()
+    resolved_allowed = allowed_dir.resolve()
+
+    # Check if path is within allowed directory
+    try:
+        resolved_path.relative_to(resolved_allowed)
+    except ValueError as e:
+        raise ValueError(f"Path traversal detected: {path} is not within {allowed_dir}") from e
+
+    return resolved_path
+
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -212,7 +242,7 @@ MESSAGE_TTL_SECONDS = int(
     _get_config_value("AGENT_HUB_MESSAGE_TTL", ["gc", "message_ttl_seconds"], 3600, _CONFIG, int)
 )
 AGENT_STALE_SECONDS = int(
-    _get_config_value("AGENT_HUB_AGENT_STALE", ["gc", "agent_stale_seconds"], 3600, _CONFIG, int)
+    _get_config_value("AGENT_HUB_AGENT_STALE", ["gc", "agent_stale_seconds"], 600, _CONFIG, int)
 )
 GC_INTERVAL_SECONDS = int(
     _get_config_value("AGENT_HUB_GC_INTERVAL", ["gc", "interval_seconds"], 60, _CONFIG, int)
@@ -983,6 +1013,13 @@ def archive_thread_messages(thread_id: str) -> None:
 
 def ensure_thread_id(msg: dict[str, Any], msg_path: Path) -> str:
     """Ensure message has a threadId, creating one if needed."""
+    # Validate that msg_path is within the allowed messages directory
+    try:
+        validate_path_within_dir(msg_path, MESSAGES_DIR)
+    except ValueError as e:
+        log.error(f"Path validation failed for message file: {e}")
+        return cast(str, msg.get("threadId", ""))
+
     if msg.get("threadId"):
         thread_id = cast(str, msg["threadId"])
         thread = load_thread(thread_id)
@@ -1133,7 +1170,12 @@ def gc_session_agents() -> int:
 
 
 def run_gc(agents: dict[str, dict[str, Any]]) -> None:
-    """Run garbage collection on messages, threads, stale agents, and oriented sessions."""
+    """Run garbage collection on messages, threads, stale agents, and oriented sessions.
+
+    Agents are only removed if their associated OpenCode session no longer exists
+    or is inactive. If the session is still active, the agent's lastSeen is updated
+    to keep it alive.
+    """
     now_ms = int(time.time() * 1000)
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1146,24 +1188,68 @@ def run_gc(agents: dict[str, dict[str, Any]]) -> None:
     # 0.5. Clean up session-agent mappings for non-existent sessions
     gc_session_agents()
 
-    # 1. Remove stale agents (>1hr since lastSeen)
+    # 1. Check for stale agents (>1hr since lastSeen) - but verify session is still alive
     if AGENTS_DIR.exists():
+        # Get current sessions for health checking
+        current_sessions = get_sessions()
+        active_session_ids = set()
+        if current_sessions is not None:
+            for s in current_sessions:
+                session_id = s.get("id", "")
+                if not session_id:
+                    continue
+                updated = s.get("time", {}).get("updated", 0)
+                # Session is active if updated within stale threshold
+                if now_ms - updated < AGENT_STALE_SECONDS * 1000:
+                    active_session_ids.add(session_id)
+
+        # Always consider coordinator session active if it exists
+        if COORDINATOR_SESSION_ID:
+            active_session_ids.add(COORDINATOR_SESSION_ID)
+
         for agent_path in AGENTS_DIR.glob("*.json"):
             try:
                 agent = json.loads(agent_path.read_text())
                 last_seen = agent.get("lastSeen", 0)
                 age_ms = now_ms - last_seen
+
                 if age_ms > AGENT_STALE_SECONDS * 1000:
                     agent_id = agent.get("id", agent_path.stem)
                     session_id = agent.get("sessionId")
-                    agent_path.unlink()
-                    # Remove from in-memory cache too
-                    agents.pop(agent_id, None)
-                    # Also remove from session-agent mapping
-                    if session_id and session_id in SESSION_AGENTS:
-                        del SESSION_AGENTS[session_id]
-                    agents_cleaned += 1
-                    log.info(f"Removed stale agent {agent_id} (age: {age_ms / 1000 / 60:.0f}m)")
+
+                    # Never remove the coordinator agent - refresh its lastSeen
+                    if agent_id == "coordinator":
+                        log.debug(
+                            f"Refreshing coordinator agent lastSeen (age: {age_ms / 1000 / 60:.0f}m)"
+                        )
+                        agent["lastSeen"] = now_ms
+                        atomic_write_json(agent_path, agent, indent=2)
+                        agents[agent_id] = agent
+                        continue
+
+                    # Check if agent's session is still active
+                    if session_id and session_id in active_session_ids:
+                        # Session is still alive - update agent's lastSeen instead of removing
+                        log.info(
+                            f"Agent {agent_id} session {session_id[:8]} still active, "
+                            f"updating lastSeen (age: {age_ms / 1000 / 60:.0f}m)"
+                        )
+                        agent["lastSeen"] = now_ms
+                        atomic_write_json(agent_path, agent, indent=2)
+                        # Update in-memory cache too
+                        agents[agent_id] = agent
+                    else:
+                        # Session is dead or missing - remove the agent
+                        agent_path.unlink()
+                        # Remove from in-memory cache too
+                        agents.pop(agent_id, None)
+                        # Also remove from session-agent mapping
+                        if session_id and session_id in SESSION_AGENTS:
+                            del SESSION_AGENTS[session_id]
+                        agents_cleaned += 1
+                        log.info(
+                            f"Removed stale agent {agent_id} (session inactive, age: {age_ms / 1000 / 60:.0f}m)"
+                        )
             except (json.JSONDecodeError, OSError) as e:
                 log.warning(f"Failed to check agent {agent_path}: {e}")
                 continue
@@ -1206,7 +1292,12 @@ def run_gc(agents: dict[str, dict[str, Any]]) -> None:
                     log.debug(f"Thread {thread['id']} expired (all participants stale)")
                     thread["status"] = "expired"
                     thread["resolvedAt"] = now_ms
-                    thread_path.write_text(json.dumps(thread, indent=2))
+                    # Validate path before writing
+                    try:
+                        validate_path_within_dir(thread_path, THREADS_DIR)
+                        thread_path.write_text(json.dumps(thread, indent=2))
+                    except (ValueError, OSError) as e:
+                        log.warning(f"Failed to update expired thread {thread['id']}: {e}")
                     archive_thread_messages(thread["id"])
             except (json.JSONDecodeError, OSError):
                 continue
@@ -1440,8 +1531,22 @@ def start_hub_server() -> subprocess.Popen[bytes] | None:
         # Redirect stdout/stderr to log files
         # NOTE: Files intentionally not using context manager - must stay open for subprocess
         DAEMON_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        hub_stdout = open(DAEMON_LOG_DIR / "hub-stdout.log", "a")  # noqa: SIM115
-        hub_stderr = open(HUB_STDERR_LOG_FILE, "a")  # noqa: SIM115
+
+        # Open log files with restrictive permissions (owner read/write only)
+        stdout_log_path = DAEMON_LOG_DIR / "hub-stdout.log"
+        stderr_log_path = HUB_STDERR_LOG_FILE
+
+        # Create files with 0o600 permissions if they don't exist
+        for log_path in (stdout_log_path, stderr_log_path):
+            if not log_path.exists():
+                log_path.touch(mode=0o600)
+
+        hub_stdout = open(stdout_log_path, "a")  # noqa: SIM115
+        hub_stderr = open(stderr_log_path, "a")  # noqa: SIM115
+
+        # Ensure file descriptors have restrictive permissions even if file existed
+        os.chmod(hub_stdout.fileno(), 0o600)
+        os.chmod(hub_stderr.fileno(), 0o600)
 
         HUB_SERVER_PROCESS = subprocess.Popen(
             [
@@ -2792,6 +2897,14 @@ def format_notification(msg: dict[str, Any], to_agent_id: str) -> str:
 
 def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     """Process a new message file and inject if applicable."""
+    # Validate that the path is within the allowed messages directory
+    try:
+        validate_path_within_dir(path, MESSAGES_DIR)
+    except ValueError as e:
+        log.error(f"Path validation failed: {e}")
+        metrics.inc("agent_hub_messages_failed_total")
+        return
+
     try:
         msg = cast(dict[str, Any], json.loads(path.read_text()))
     except (json.JSONDecodeError, OSError) as e:
