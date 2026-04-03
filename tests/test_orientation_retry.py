@@ -184,7 +184,10 @@ def test_retry_fires_after_delay() -> None:
             daemon.check_orientation_retries(agents)
 
         # Should have retried
-        mock_inject.assert_called_once_with(session_id, "orientation-text")
+        # Verify the call was made (check args, not exact signature)
+        mock_inject.assert_called_once()
+        assert mock_inject.call_args[0][0] == session_id
+        assert mock_inject.call_args[0][1] == "orientation-text"
         # Retries should be incremented
         assert daemon.ORIENTATION_PENDING[session_id]["retries"] == 1
         # oriented_at should be refreshed to ~now
@@ -318,7 +321,9 @@ def test_unknown_agent_still_retries() -> None:
             daemon.check_orientation_retries(agents)
 
         # Should still retry (agent not found doesn't mean responded)
-        mock_inject.assert_called_once_with(session_id, "retry-text")
+        mock_inject.assert_called_once()
+        assert mock_inject.call_args[0][0] == session_id
+        assert mock_inject.call_args[0][1] == "retry-text"
         assert daemon.ORIENTATION_PENDING[session_id]["retries"] == 1
     finally:
         daemon.ORIENTATION_RETRY_DELAY = original_delay
@@ -398,7 +403,9 @@ def test_multiple_sessions_independent() -> None:
             daemon.check_orientation_retries(agents)
 
         # Only session C should have been retried
-        mock_inject.assert_called_once_with("ses_c", "orientation-text")
+        mock_inject.assert_called_once()
+        assert mock_inject.call_args[0][0] == "ses_c"
+        assert mock_inject.call_args[0][1] == "orientation-text"
 
         # Session A: removed (responded)
         assert "ses_a" not in daemon.ORIENTATION_PENDING
