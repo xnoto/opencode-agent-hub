@@ -2350,38 +2350,149 @@ def get_or_create_agent_for_directory(
 
 
 def generate_agent_id_for_session(session: dict[str, Any]) -> str:
-    """Generate a unique agent ID from session metadata.
+    """Generate a unique pseudorandom agent ID for a session.
 
-    Uses session slug if available (human-readable), otherwise falls back
-    to session ID. This ensures each session gets a unique agent identity
-    even when multiple sessions share the same working directory.
+    Creates a human-readable but pseudorandom identifier (e.g., "cosmic-panda")
+    rather than using the session slug directly. This ensures agents get unique
+    pseudorandom names even when sessions are named after models ("kimi", "gpt").
     """
-    slug = session.get("slug")
-    session_id = cast(str, session.get("id", ""))
+    import random
+    import secrets
 
-    if slug:
-        # Use slug as primary identifier (e.g., "cosmic-panda")
-        return cast(str, slug)
+    # Adjectives and nouns for human-readable IDs
+    ADJECTIVES = [
+        "happy",
+        "brave",
+        "clever",
+        "swift",
+        "bright",
+        "calm",
+        "eager",
+        "fancy",
+        "gentle",
+        "jolly",
+        "kind",
+        "lively",
+        "merry",
+        "noble",
+        "polite",
+        "proud",
+        "quick",
+        "quiet",
+        "silly",
+        "sleepy",
+        "smart",
+        "strong",
+        "sweet",
+        "tidy",
+        "warm",
+        "wise",
+        "witty",
+        "zany",
+        "azure",
+        "cosmic",
+        "crimson",
+        "golden",
+        "rustic",
+        "sunny",
+        "vivid",
+        "wild",
+        "ancient",
+        "autumn",
+        "blazing",
+        "crystal",
+        "distant",
+        "electric",
+        "frozen",
+        "hidden",
+        "infinite",
+        "lucky",
+        "mystic",
+        "neon",
+        "radiant",
+        "silent",
+        "stellar",
+        "thunder",
+        "vibrant",
+    ]
+    NOUNS = [
+        "panda",
+        "tiger",
+        "eagle",
+        "falcon",
+        "wolf",
+        "bear",
+        "lynx",
+        "hawk",
+        "fox",
+        "owl",
+        "lion",
+        "dragon",
+        "phoenix",
+        "raven",
+        "stag",
+        "orca",
+        "cobra",
+        "viper",
+        "badger",
+        "moose",
+        "elk",
+        "bison",
+        "crane",
+        "heron",
+        "ibis",
+        "koala",
+        "lemur",
+        "puma",
+        "quail",
+        "robin",
+        "shark",
+        "turtle",
+        "unicorn",
+        "vulture",
+        "walrus",
+        "yak",
+        "zebra",
+        "comet",
+        "nebula",
+        "quasar",
+        "asteroid",
+        "eclipse",
+        "galaxy",
+        "meteor",
+        "orbit",
+        "planet",
+        "pulsar",
+        "quark",
+        "rocket",
+        "satellite",
+        "star",
+        "void",
+        "wave",
+        "zenith",
+    ]
 
-    # Fallback to session ID (truncated for readability)
-    if session_id.startswith("ses_"):
-        # Use the unique portion after "ses_" prefix, truncated
-        return f"session-{session_id[4:16]}"
+    # Generate a unique pseudorandom ID
+    adj = random.choice(ADJECTIVES)
+    noun = random.choice(NOUNS)
+    # Add a short random suffix for uniqueness (4 hex chars = 65536 combinations)
+    suffix = secrets.token_hex(2)
+    return f"{adj}-{noun}-{suffix}"
 
-    return f"session-{session_id[:12]}" if session_id else "unknown-session"
+
+# Track which sessions have been oriented but not yet registered
+# Structure: {session_id: {"oriented_at": float, "directory": str}}
+ORIENTED_PENDING_REGISTRATION: dict[str, dict] = {}
 
 
-def get_or_create_agent_for_session(
+def get_session_mapping(
     session: dict[str, Any], agents: dict[str, dict[str, Any]]
-) -> dict[str, Any]:
-    """Find or auto-create an agent for a specific session.
+) -> dict[str, Any] | None:
+    """Find existing agent mapping for a session.
 
-    Unlike get_or_create_agent_for_directory(), this creates a unique agent
-    identity per session, allowing multiple TUI sessions in the same directory
-    to have separate agent identities.
-
-    The agent ID is derived from the session's slug (if available) or session ID,
-    ensuring uniqueness across all sessions.
+    Returns the agent dict if an agent has registered for this session,
+    otherwise returns None. Agents register themselves via MCP, so we
+    just look up existing mappings here.
     """
     session_id = cast(str, session.get("id", ""))
     directory = cast(str, session.get("directory", ""))
@@ -2392,46 +2503,48 @@ def get_or_create_agent_for_session(
         if agent_id in agents:
             return agents[agent_id]
 
-    # Generate unique agent ID from session
-    agent_id = generate_agent_id_for_session(session)
+    # Check if any existing agent has this sessionId
+    for agent in agents.values():
+        if agent.get("sessionId") == session_id:
+            # Update our mapping
+            SESSION_AGENTS[session_id] = {
+                "agentId": agent["id"],
+                "directory": directory,
+                "slug": session.get("slug"),
+            }
+            save_session_agents()
+            return agent
 
-    # Handle conflicts by appending session ID fragment
-    if agent_id in agents and agents[agent_id].get("sessionId") != session_id:
-        # Different session has this slug - append uniquifier
-        agent_id = f"{agent_id}-{session_id[4:12]}" if session_id.startswith("ses_") else agent_id
+    return None
 
-    agent = {
-        "id": agent_id,
-        "sessionId": session_id,  # Track which session this agent represents
-        "projectPath": directory,  # Keep for reference/display
-        "slug": session.get("slug"),
-        "role": f"Session agent for {cast(str, session.get('title', directory))[:50]}",
-        "capabilities": [],
-        "collaboratesWith": [],
-        "lastSeen": int(time.time() * 1000),
-        "status": "active",
-        "autoCreated": True,
-    }
+
+def register_session_agent(
+    session_id: str, agent_id: str, agents: dict[str, dict[str, Any]]
+) -> dict[str, Any] | None:
+    """Register an agent that has self-registered via MCP.
+
+    Called when a new agent file is detected. If the agent is associated
+    with a session we've oriented, update mappings and notify coordinator.
+    """
+    if agent_id not in agents:
+        return None
+
+    agent = agents[agent_id]
+    agent["sessionId"] = session_id
 
     # Update session-to-agent mapping
+    directory = agent.get("projectPath", "")
     SESSION_AGENTS[session_id] = {
         "agentId": agent_id,
         "directory": directory,
-        "slug": session.get("slug"),
+        "slug": None,
     }
     save_session_agents()
 
-    # Save agent to disk (atomic write to prevent readers seeing partial files)
-    agent_file = AGENTS_DIR / f"{agent_id}.json"
-    try:
-        atomic_write_json(agent_file, agent, indent=2)
-        agents[agent_id] = agent
-        metrics.inc("agent_hub_agents_auto_created_total")
-        metrics.set_gauge("agent_hub_active_agents", len(agents))
-        log.info(f"Auto-registered session agent '{agent_id}' for session {session_id[:12]}")
-    except OSError as e:
-        log.error(f"Failed to save auto-created session agent: {e}")
+    # Notify coordinator of new agent
+    notify_coordinator_new_agent(agent_id, directory)
 
+    log.info(f"Registered agent '{agent_id}' for session {session_id[:12]}")
     return agent
 
 
@@ -2462,97 +2575,71 @@ def find_session_for_agent(
     return None
 
 
-def format_orientation(agent: dict[str, Any], all_agents: dict[str, dict[str, Any]]) -> str:
+def format_orientation(all_agents: dict[str, dict[str, Any]]) -> str:
     """Format orientation message for a newly detected agent session.
 
-    Includes registration instructions with the session-specific agent ID.
-    This ensures the agent registers with agent-hub-mcp using the unique
-    ID assigned by the daemon, enabling multiple sessions in the same
-    directory to have separate identities.
+    Provides generic orientation that works for any session. The agent
+    will register itself via MCP with its own chosen pseudorandom name.
     """
-    agent_id = agent.get("id", "unknown")
-    directory = agent.get("projectPath", "")
+    # List active agents
+    active_agents = [aid for aid, a in all_agents.items() if is_agent_active(a)]
 
-    # List other active agents (exclude self)
-    other_agents = [aid for aid, a in all_agents.items() if aid != agent_id and is_agent_active(a)]
+    parts = ["Agent hub connected."]
 
-    parts = [f"Agent hub connected. You are: {agent_id}"]
-
-    if other_agents:
-        agents_str = ", ".join(other_agents[:5])
-        if len(other_agents) > 5:
-            agents_str += f" (+{len(other_agents) - 5} more)"
-        parts.append(f"Other agents: {agents_str}")
+    if active_agents:
+        agents_str = ", ".join(active_agents[:5])
+        if len(active_agents) > 5:
+            agents_str += f" (+{len(active_agents) - 5} more)"
+        parts.append(f"Active agents: {agents_str}")
 
     parts.append("Tools: agent-hub_send_message, agent-hub_sync")
 
-    # Add registration instruction with session-specific ID
-    # This ensures agent-hub-mcp creates a unique agent entry for this session
+    # Add registration instruction - agent chooses its own ID
     parts.append(
-        f'Register with: agent-hub_register_agent(id="{agent_id}", '
-        f'projectPath="{directory}", role="your role")'
+        'Register with: agent-hub_register_agent(id="<choose-your-own-name>", '
+        'projectPath="<your-directory>", role="<your-role>")'
     )
 
     return " | ".join(parts)
 
 
-def orient_session(
-    session_id: str, agent: dict[str, Any], all_agents: dict[str, dict[str, Any]]
-) -> bool:
-    """Inject orientation message into a session and notify coordinator."""
+def orient_session(session_id: str, directory: str, all_agents: dict[str, dict[str, Any]]) -> bool:
+    """Inject orientation message into a session.
+
+    Does NOT auto-create an agent - agents register themselves via MCP.
+    Just injects orientation so the session knows hub is available.
+    """
     if not session_id:
         return False
 
     if session_id in ORIENTED_SESSIONS:
         return False  # Already oriented
 
-    agent_id = agent.get("id", "unknown")
-    directory = agent.get("projectPath", "")
-
-    # Skip coordinator session itself — match by session ID, not directory,
-    # because OpenCode resolves directory to the hub server's project root
-    # rather than honouring the cwd passed to `opencode run`.
+    # Skip coordinator session itself
     if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
         ORIENTED_SESSIONS.add(session_id)
         save_oriented_sessions()
         return True
 
-    # Inject minimal orientation to the agent
-    orientation = format_orientation(agent, all_agents)
+    # Inject orientation message
+    orientation = format_orientation(all_agents)
     inject_message(session_id, orientation)
 
-    # Notify coordinator of new agent (coordinator will reach out to capture task)
-    notify_coordinator_new_agent(cast(str, agent_id), cast(str, directory))
-
+    # Track that this session was oriented (pending agent registration)
     ORIENTED_SESSIONS.add(session_id)
     save_oriented_sessions()
     metrics.inc("agent_hub_sessions_oriented_total")
     metrics.set_gauge("agent_hub_oriented_sessions", len(ORIENTED_SESSIONS))
 
-    # Track for retry if agent doesn't respond
-    if ORIENTATION_RETRY_MAX > 0:
-        ORIENTATION_PENDING[session_id] = {
-            "oriented_at": time.time(),
-            "retries": 0,
-            "agent_id": agent_id,
-        }
-
-    log.info(f"Oriented session {session_id[:8]} for agent {agent_id}")
+    log.info(f"Oriented session {session_id[:8]} at {directory}")
     return True
 
 
 def check_orientation_retries(agents: dict[str, dict[str, Any]]) -> None:
-    """Re-inject orientation for sessions that haven't responded.
+    """Check for agents that have registered after being oriented.
 
-    Checks ORIENTATION_PENDING for sessions where:
-    - More than ORIENTATION_RETRY_DELAY seconds have passed since last attempt
-    - Retries < ORIENTATION_RETRY_MAX
-
-    A session is considered "responded" when its agent's lastSeen timestamp
-    (updated by agent-hub MCP register_agent) is newer than the orientation time.
-
-    After ORIENTATION_RETRY_MAX retries without response, the session is
-    removed from pending and a warning is logged.
+    Previously this re-injected orientation for unresponsive sessions.
+    Now it just cleans up the tracking when agents register.
     """
     if not ORIENTATION_PENDING:
         return
@@ -2563,44 +2650,36 @@ def check_orientation_retries(agents: dict[str, dict[str, Any]]) -> None:
     for session_id, pending in ORIENTATION_PENDING.items():
         agent_id = pending["agent_id"]
         oriented_at = pending["oriented_at"]
-        retries = pending["retries"]
 
-        # Check if agent has responded (lastSeen updated after orientation)
+        # Check if agent has registered
         agent = agents.get(agent_id)
         if agent:
-            last_seen_s = agent.get("lastSeen", 0) / 1000  # Convert ms to s
-            if last_seen_s > oriented_at:
-                resolved.append(session_id)
-                log.debug(f"Session {session_id[:8]} agent {agent_id} responded, clearing retry")
-                continue
+            resolved.append(session_id)
+            log.debug(f"Session {session_id[:8]} agent {agent_id} registered, clearing retry")
+            continue
 
+        # Give up after max retries (agent never registered)
+        retries = pending["retries"]
         elapsed = now - oriented_at
-        if elapsed < ORIENTATION_RETRY_DELAY:
-            continue  # Not yet time to retry
-
-        if retries >= ORIENTATION_RETRY_MAX:
-            # Give up
+        if retries >= ORIENTATION_RETRY_MAX and elapsed >= ORIENTATION_RETRY_DELAY:
             resolved.append(session_id)
             metrics.inc("agent_hub_orientation_gave_up_total")
             log.warning(
-                f"Session {session_id[:8]} agent {agent_id} never responded "
-                f"after {retries} orientation retries, giving up"
+                f"Session {session_id[:8]} never registered an agent "
+                f"after {retries} retries, giving up"
             )
             continue
 
-        # Retry: re-inject orientation
-        orientation = format_orientation(
-            agent or {"id": agent_id, "projectPath": ""},
-            agents,
-        )
-        inject_message(session_id, orientation)
-        pending["retries"] = retries + 1
-        pending["oriented_at"] = now  # Reset timer for next retry window
-        metrics.inc("agent_hub_orientation_retries_total")
-        log.info(
-            f"Orientation retry {pending['retries']}/{ORIENTATION_RETRY_MAX} "
-            f"for session {session_id[:8]} agent {agent_id}"
-        )
+        # Retry orientation if enough time has passed
+        if elapsed >= ORIENTATION_RETRY_DELAY and retries < ORIENTATION_RETRY_MAX:
+            # Just log - we don't re-inject since agent registers itself
+            pending["retries"] = retries + 1
+            pending["oriented_at"] = now
+            metrics.inc("agent_hub_orientation_retries_total")
+            log.info(
+                f"Orientation retry {pending['retries']}/{ORIENTATION_RETRY_MAX} "
+                f"for session {session_id[:8]} (waiting for agent registration)"
+            )
 
     for session_id in resolved:
         del ORIENTATION_PENDING[session_id]
@@ -2610,7 +2689,7 @@ def process_session_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     """Process an OpenCode session file and orient if needed.
 
     Only orients sessions created AFTER the daemon started.
-    Creates a unique agent identity per session using session ID/slug.
+    Does NOT create agent files - agents register themselves via MCP.
     """
     session = load_opencode_session(path)
     if not session:
@@ -2623,7 +2702,7 @@ def process_session_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     if session_id in ORIENTED_SESSIONS:
         return  # Already oriented
 
-    # Skip coordinator session - mark as oriented but don't create agent
+    # Skip coordinator session
     if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
         ORIENTED_SESSIONS.add(session_id)
         return
@@ -2638,11 +2717,9 @@ def process_session_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     if not directory:
         return
 
-    # Get or auto-create agent for this session (unique per session)
-    # Note: Coordinator also registers as an agent so it can receive messages
-    agent = get_or_create_agent_for_session(session, agents)
-    log.info(f"File watcher: new session {session_id[:8]}, orienting as {agent.get('id')}")
-    orient_session(session_id, agent, agents)
+    # Just orient the session - agent will register itself via MCP
+    log.info(f"File watcher: new session {session_id[:8]} at {directory}")
+    orient_session(session_id, directory, agents)
 
 
 def poll_active_sessions(agents: dict[str, dict[str, Any]]) -> None:
@@ -2654,8 +2731,7 @@ def poll_active_sessions(agents: dict[str, dict[str, Any]]) -> None:
     - Daemon restart gives a clean slate
 
     Sessions are oriented once and tracked in ORIENTED_SESSIONS to prevent
-    repeated messaging. Each session gets a unique agent identity based on
-    its session ID/slug, allowing multiple sessions in the same directory.
+    repeated messaging. Agents register themselves via MCP when ready.
     """
     sessions = get_sessions()
     if not sessions:
@@ -2666,7 +2742,7 @@ def poll_active_sessions(agents: dict[str, dict[str, Any]]) -> None:
         if not session_id or session_id in ORIENTED_SESSIONS:
             continue
 
-        # Skip coordinator session - mark as oriented but don't create agent
+        # Skip coordinator session
         if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
             ORIENTED_SESSIONS.add(session_id)
             continue
@@ -2680,9 +2756,9 @@ def poll_active_sessions(agents: dict[str, dict[str, Any]]) -> None:
         if not directory:
             continue
 
-        agent = get_or_create_agent_for_session(session, agents)
-        log.info(f"New session {session_id[:8]} orienting as {agent.get('id')}")
-        orient_session(session_id, agent, agents)
+        # Just orient the session - agent will register itself via MCP
+        log.info(f"New session {session_id[:8]} at {directory}")
+        orient_session(session_id, directory, agents)
 
 
 def format_notification(msg: dict[str, Any], to_agent_id: str) -> str:
@@ -2862,13 +2938,27 @@ class SessionHandler(FileSystemEventHandler):
 
 
 class AgentHandler(FileSystemEventHandler):
-    """Handle agent registration changes to reload agents dict."""
+    """Handle agent registration changes to reload agents dict.
+
+    When new agent files are created (via MCP registration), reloads
+    the agents dict and notifies the coordinator of new agents.
+    """
 
     def __init__(self, agents: dict[str, dict[str, Any]]):
         self.agents = agents
 
     def on_created(self, event: FileSystemEvent) -> None:
+        if event.is_directory:
+            return
+        path = Path(cast(str, event.src_path))
+        if path.suffix != ".json":
+            return
+
+        log.info(f"New agent registration file: {path.name}")
         self._reload()
+
+        # Check if this is a new agent that needs coordinator notification
+        self._handle_new_agent(path)
 
     def on_modified(self, event: FileSystemEvent) -> None:
         self._reload()
@@ -2882,6 +2972,30 @@ class AgentHandler(FileSystemEventHandler):
         self.agents.clear()
         self.agents.update(new_agents)
         log.debug(f"Reloaded agents: {list(self.agents.keys())}")
+
+    def _handle_new_agent(self, path: Path) -> None:
+        """Handle a newly registered agent file.
+
+        Loads the agent and notifies coordinator if this is a new registration.
+        """
+        try:
+            agent = json.loads(path.read_text())
+            agent_id = agent.get("id")
+            directory = agent.get("projectPath", "")
+
+            if not agent_id:
+                return
+
+            # Skip coordinator (handled separately)
+            if agent_id == "coordinator":
+                return
+
+            # Notify coordinator of new agent
+            notify_coordinator_new_agent(agent_id, directory)
+            log.info(f"Notified coordinator of new agent: {agent_id}")
+
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"Failed to handle new agent file {path}: {e}")
 
 
 # =============================================================================
