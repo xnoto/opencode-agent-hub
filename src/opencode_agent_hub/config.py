@@ -148,14 +148,14 @@ COORDINATOR_READY_TIMEOUT_SECONDS = _get_config_value(
 COORDINATOR_BOOTSTRAP_REQUIRED = _get_config_value(
     "AGENT_HUB_COORDINATOR_BOOTSTRAP_REQUIRED",
     ["coordinator", "bootstrap_required"],
-    True,
+    False,  # Allow daemon to run without coordinator READY for headless operation
     _CONFIG,
     bool,
 )
 COORDINATOR_STRICT_READY = _get_config_value(
     "AGENT_HUB_COORDINATOR_STRICT_READY",
     ["coordinator", "strict_ready"],
-    True,
+    False,  # Allow any activity, not just exact "READY" text
     _CONFIG,
     bool,
 )

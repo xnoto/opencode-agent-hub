@@ -387,15 +387,78 @@ def _get_recent_hub_error_context(session_id: str, max_entries: int = 2) -> str:
 def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int, after_ms: int = 0) -> bool:
     """Wait for coordinator readiness based on READY or assistant activity."""
     deadline = time.time() + max(1, timeout_seconds)
+    last_log_time = 0
+    log_interval = 10  # Log progress every 10 seconds
+
     while time.time() < deadline:
         messages = _fetch_session_messages(session_id)
+
+        # Check for READY ack
         if _coordinator_has_ready_ack(messages):
+            config.log.info(f"Coordinator session {session_id[:8]} acknowledged READY")
             return True
+
+        # Check for any activity (non-strict mode)
         if not config.COORDINATOR_STRICT_READY and _coordinator_has_activity_after(
             messages, after_ms
         ):
+            config.log.info(
+                f"Coordinator session {session_id[:8]} showed activity (non-strict mode)"
+            )
             return True
+
+        # Progress logging
+        now = time.time()
+        if now - last_log_time >= log_interval:
+            remaining = int(deadline - now)
+            msg_count = len(messages)
+            assistant_msgs = sum(
+                1 for m in messages if m.get("info", {}).get("role") == "assistant"
+            )
+            config.log.debug(
+                f"Waiting for coordinator {session_id[:8]}... "
+                f"({remaining}s remaining, {msg_count} total msgs, {assistant_msgs} assistant)"
+            )
+            last_log_time = now
+
+            # Log message samples for debugging
+            if assistant_msgs > 0:
+                recent_assistant = [
+                    m for m in messages if m.get("info", {}).get("role") == "assistant"
+                ][-3:]  # Last 3 assistant messages
+                for msg in recent_assistant:
+                    parts = msg.get("parts", [])
+                    text_parts = [p.get("text", "")[:100] for p in parts if p.get("type") == "text"]
+                    if text_parts:
+                        config.log.debug(f"  Recent assistant msg: {text_parts[0][:80]}...")
+
         time.sleep(0.5)
+
+    # Timeout - provide detailed diagnostics
+    config.log.error(f"Coordinator {session_id[:8]} timeout after {timeout_seconds}s")
+    config.log.error(f"  STRICT_READY mode: {config.COORDINATOR_STRICT_READY}")
+    config.log.error(f"  Looking for: exact 'READY' text in assistant message")
+
+    messages = _fetch_session_messages(session_id)
+    msg_count = len(messages)
+    assistant_msgs = [m for m in messages if m.get("info", {}).get("role") == "assistant"]
+    config.log.error(f"  Total messages: {msg_count}, Assistant messages: {len(assistant_msgs)}")
+
+    if assistant_msgs:
+        config.log.error("  Recent assistant messages received:")
+        for i, msg in enumerate(assistant_msgs[-3:], 1):
+            parts = msg.get("parts", [])
+            text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
+            for text in text_parts:
+                config.log.error(f"    [{i}] {text[:200]}{'...' if len(text) > 200 else ''}")
+    else:
+        config.log.error("  No assistant messages received - coordinator may not be processing")
+        config.log.error("  Possible causes:")
+        config.log.error("    - No OpenCode UI connected to the coordinator session")
+        config.log.error("    - OpenCode is not running or hub server failed")
+        config.log.error("    - Session has blocking permissions (question: deny)")
+        config.log.error(f"  Session URL: {config.OPENCODE_URL}/session/{session_id}")
+
     return False
 
 
