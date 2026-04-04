@@ -111,9 +111,18 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/) (
 
 ### Scope (recommended)
 
-- `daemon` - Main daemon code
+- `daemon` - Main daemon entry point
 - `watch` - Dashboard script
 - `config` - Configuration/env vars/config file
+- `messaging` - Message injection and processing
+- `sessions` - Session discovery and orientation
+- `coordinator` - Coordinator agent management
+- `rate-limiting` - Rate limiting logic
+- `persistence` - File I/O and storage
+- `metrics` - Prometheus metrics collection
+- `gc` - Garbage collection
+- `models` - Data classes
+- `utils` - Utility functions
 - `docs` - Documentation
 - `ci` - GitHub Actions
 - `deps` - Dependencies
@@ -207,15 +216,15 @@ def test_env_var_takes_precedence_over_config_file():
 ```python
 def test_rate_limit_blocks_excessive_messages():
     """Agent sending more than max_messages within window gets rate limited."""
-    from opencode_agent_hub import daemon
+    from opencode_agent_hub.rate_limiting import check_rate_limit, _agent_message_times
     
     # GIVEN: An agent that has sent max_messages within the window
     agent_id = "test-agent"
     now = time.time()
-    daemon._agent_message_times[agent_id] = [now - 10, now - 20, now - 30]
+    _agent_message_times[agent_id] = [now - 10, now - 20, now - 30]
     
     # WHEN: The agent tries to send another message
-    allowed, reason = daemon.check_rate_limit(agent_id)
+    allowed, reason = check_rate_limit(agent_id)
     
     # THEN: The message should be blocked with a rate limit reason
     assert allowed is False
@@ -337,11 +346,11 @@ def test_orientation_retry_fires_after_delay_elapsed():
     initial orientation message. We retry up to ORIENTATION_RETRY_MAX times.
     """
     # Configure: Allow 2 retries, wait 60s between attempts
-    daemon.ORIENTATION_RETRY_MAX = 2
-    daemon.ORIENTATION_RETRY_DELAY = 60
+    from opencode_agent_hub.sessions import ORIENTATION_RETRY_MAX, ORIENTATION_RETRY_DELAY
+    from opencode_agent_hub.sessions import ORIENTATION_PENDING
     
     # Simulate: Session oriented 61 seconds ago (1s past retry delay)
-    daemon.ORIENTATION_PENDING["ses_123"] = {
+    ORIENTATION_PENDING["ses_123"] = {
         "oriented_at": time.time() - 61,  # 61s ago = retry delay + 1s
         "retries": 0,
         "agent_id": "unresponsive-agent",
@@ -370,9 +379,9 @@ def test_orientation_retry_fires_after_delay_elapsed():
 ### Coverage Gaps (Priority Order)
 
 #### Phase 1: Critical Infrastructure
-- [ ] Hub server lifecycle management (`start_hub_server`, `stop_hub_server`)
-- [ ] Preflight check validation (`check_agent_hub_mcp_configured`)
-- [ ] Message injection retry logic with exponential backoff
+- [ ] Hub server lifecycle management (`start_hub_server`, `stop_hub_server` in hub_server.py)
+- [ ] Preflight check validation (`check_agent_hub_mcp_configured` in config.py)
+- [ ] Message injection retry logic with exponential backoff (messaging.py)
 
 #### Phase 2: Core Pipeline
 - [ ] Message processing end-to-end (receive → route → inject)
@@ -380,9 +389,9 @@ def test_orientation_retry_fires_after_delay_elapsed():
 - [ ] Garbage collection integration
 
 #### Phase 3: Edge Cases
-- [ ] Error handling for corrupted agent files
-- [ ] Session discovery with locked/missing SQLite DB
-- [ ] Metrics export under load
+- [ ] Error handling for corrupted agent files (persistence.py)
+- [ ] Session discovery with locked/missing SQLite DB (sessions.py)
+- [ ] Metrics export under load (metrics.py)
 
 #### Phase 4: Integration
 - [ ] Service management (`--install-service`, `--uninstall-service`)
@@ -429,8 +438,19 @@ started.
 opencode-agent-hub/
 ├── src/opencode_agent_hub/
 │   ├── __init__.py          # Version info
-│   ├── daemon.py            # Main daemon (~3300 lines) - coordination logic
-│   └── watch.py             # Dashboard TUI (~400 lines)
+│   ├── daemon.py            # Main entry point (~200 lines)
+│   ├── watch.py             # Dashboard TUI (~400 lines)
+│   ├── utils.py             # Atomic file operations, path validation
+│   ├── models.py            # Data classes (InjectionTask, MessageTask, etc.)
+│   ├── config.py            # Configuration management and constants
+│   ├── persistence.py       # File I/O, agent/thread storage
+│   ├── rate_limiting.py     # Rate limiting logic
+│   ├── metrics.py           # Prometheus metrics collection
+│   ├── hub_server.py        # OpenCode hub server lifecycle
+│   ├── coordinator.py       # Coordinator agent management
+│   ├── sessions.py          # Session discovery and orientation
+│   ├── messaging.py         # Message injection and processing
+│   └── garbage_collector.py # GC logic for agents/sessions
 ├── tests/
 │   ├── test_config.py       # Configuration loading tests
 │   ├── test_coordinator.py  # Coordinator session management
@@ -504,13 +524,13 @@ opencode-agent-hub/
 
 | Component | Purpose | Test File |
 |-----------|---------|-----------|
-| `start_hub_server()` | Manages OpenCode hub process | ❌ Needs tests |
-| `poll_active_sessions()` | Discovers new TUI sessions | `test_session_agents.py` |
-| `process_message_file()` | Routes messages to agents | ❌ Needs tests |
-| `inject_message()` | Injects via OpenCode API | ❌ Needs tests |
-| `start_coordinator()` | Creates coordinator session | `test_coordinator.py` |
-| `run_gc()` | Cleans up stale data | ❌ Needs tests |
-| `check_rate_limit()` | Throttles excessive messages | `test_rate_limiting.py` |
+| `start_hub_server()` (hub_server.py) | Manages OpenCode hub process | ❌ Needs tests |
+| `poll_active_sessions()` (sessions.py) | Discovers new TUI sessions | `test_session_agents.py` |
+| `process_message_file()` (messaging.py) | Routes messages to agents | ❌ Needs tests |
+| `inject_message()` (messaging.py) | Injects via OpenCode API | ❌ Needs tests |
+| `start_coordinator()` (coordinator.py) | Creates coordinator session | `test_coordinator.py` |
+| `run_gc()` (garbage_collector.py) | Cleans up stale data | ❌ Needs tests |
+| `check_rate_limit()` (rate_limiting.py) | Throttles excessive messages | `test_rate_limiting.py` |
 
 ### Session-Based Agent Identity
 
@@ -519,12 +539,12 @@ Multiple OpenCode sessions in the same directory each get a unique agent identit
 - Enables parallel agents working on the same codebase without conflicts
 - Session-agent mapping persisted in `~/.agent-hub/session_agents.json`
 
-Daemon workflow:
-1. Polls SQLite DB for new sessions (primary discovery mechanism)
-2. Detects new messages via watchdog on `~/.agent-hub/messages/`
-3. Looks up target agent's OpenCode session (by session ID, not directory)
-4. Injects message via OpenCode HTTP API (`prompt_async`)
-5. Marks message as delivered
+Daemon workflow (coordinated across modules):
+1. **sessions.py**: Polls SQLite DB for new sessions (primary discovery mechanism)
+2. **messaging.py**: Detects new messages via watchdog on `~/.agent-hub/messages/`
+3. **messaging.py**: Looks up target agent's OpenCode session (by session ID, not directory)
+4. **messaging.py**: Injects message via OpenCode HTTP API (`prompt_async`)
+5. **persistence.py**: Marks message as delivered
 
 ---
 
@@ -532,7 +552,7 @@ Daemon workflow:
 
 ### Adding a New Configuration Option
 
-1. Add to `daemon.py` defaults section:
+1. Add to `config.py` defaults section:
 ```python
 MY_NEW_SETTING = _get_config_value(
     "AGENT_HUB_MY_SETTING",
@@ -556,7 +576,7 @@ def test_my_setting_uses_env_var_when_set():
 
 ### Adding a New MCP Tool
 
-1. Define tool schema in `daemon.py`
+1. Define tool schema in `messaging.py` or appropriate module
 2. Implement handler function
 3. Add test covering:
    - Success case

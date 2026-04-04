@@ -1,5 +1,0 @@
-# HELP foo bar
-# TYPE foo counter
-
-foo 99
-
