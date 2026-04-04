@@ -488,20 +488,31 @@ def orient_session(session_id: str, directory: str, all_agents: dict[str, dict[s
     from opencode_agent_hub.messaging import inject_message
 
     if not session_id:
+        log.warning("orient_session called with empty session_id")
         return False
 
     if session_id in ORIENTED_SESSIONS:
+        log.debug(f"Session {session_id[:8]} already in ORIENTED_SESSIONS, skipping")
         return False  # Already oriented
 
     # Skip coordinator session itself
     if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
+        log.debug(f"Session {session_id[:8]} is coordinator, skipping orientation")
         ORIENTED_SESSIONS.add(session_id)
         save_oriented_sessions()
         return True
 
     # Inject orientation message
     orientation = format_orientation(all_agents)
-    inject_message(session_id, orientation)
+    log.info(f"Injecting orientation into session {session_id[:8]} at {directory}")
+    log.debug(f"Orientation message: {orientation[:100]}...")
+
+    try:
+        inject_message(session_id, orientation)
+        log.info(f"Successfully injected orientation into session {session_id[:8]}")
+    except Exception as e:
+        log.error(f"Failed to inject orientation into session {session_id[:8]}: {e}")
+        return False
 
     # Track that this session was oriented (pending agent registration)
     ORIENTED_SESSIONS.add(session_id)
@@ -572,7 +583,7 @@ def check_orientation_retries(agents: dict[str, dict[str, Any]]) -> None:
 def process_session_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     """Process an OpenCode session file and orient if needed.
 
-    Only orients sessions created AFTER the daemon started.
+    Only orients sessions created AFTER the daemon started (with 60s grace period).
     Does NOT create agent files - agents register themselves via MCP.
     """
     from opencode_agent_hub.config import (  # noqa: I001
@@ -596,10 +607,16 @@ def process_session_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         ORIENTED_SESSIONS.add(session_id)
         return
 
-    # Only orient sessions created AFTER daemon started
+    # Only orient sessions created AFTER daemon started (with grace period)
     created_ms = cast(int, session.get("time", {}).get("created", 0))
-    if created_ms < DAEMON_START_TIME_MS:
-        log.debug(f"Session {session_id[:8]} predates daemon start, skipping")
+    updated_ms = cast(int, session.get("time", {}).get("updated", 0))
+    recently_updated = updated_ms >= DAEMON_START_TIME_MS - 60000  # 60 second grace period
+    created_after_start = created_ms >= DAEMON_START_TIME_MS
+
+    if not (created_after_start or recently_updated):
+        log.debug(
+            f"Session {session_id[:8]} predates daemon start (created {created_ms}, updated {updated_ms}), skipping"
+        )
         return
 
     directory = session.get("directory", "")
@@ -629,29 +646,51 @@ def poll_active_sessions(agents: dict[str, dict[str, Any]]) -> None:
 
     sessions = get_sessions()
     if not sessions:
+        log.debug("poll_active_sessions: no sessions found")
         return
+
+    log.debug(
+        f"poll_active_sessions: checking {len(sessions)} sessions (daemon started at {DAEMON_START_TIME_MS})"
+    )
 
     for session in sessions:
         session_id = cast(str, session.get("id", ""))
-        if not session_id or session_id in ORIENTED_SESSIONS:
+        if not session_id:
+            continue
+
+        directory = session.get("directory", "")
+        created_ms = cast(int, session.get("time", {}).get("created", 0))
+        updated_ms = cast(int, session.get("time", {}).get("updated", 0))
+
+        if session_id in ORIENTED_SESSIONS:
+            log.debug(f"Session {session_id[:8]} already oriented, skipping")
             continue
 
         # Skip coordinator session
         if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
+            log.debug(f"Session {session_id[:8]} is coordinator, adding to oriented")
             ORIENTED_SESSIONS.add(session_id)
             continue
 
-        # Only orient sessions created AFTER daemon started
-        created_ms = cast(int, session.get("time", {}).get("created", 0))
-        if created_ms < DAEMON_START_TIME_MS:
+        # Only orient sessions created AFTER daemon started OR recently updated
+        # (within 60 seconds of daemon start to handle race conditions)
+        recently_updated = updated_ms >= DAEMON_START_TIME_MS - 60000  # 60 second grace period
+        created_after_start = created_ms >= DAEMON_START_TIME_MS
+
+        if not (created_after_start or recently_updated):
+            log.debug(
+                f"Session {session_id[:8]} predates daemon (created {created_ms}, updated {updated_ms} < {DAEMON_START_TIME_MS}), skipping"
+            )
             continue
 
-        directory = session.get("directory", "")
         if not directory:
+            log.warning(f"Session {session_id[:8]} has no directory, skipping")
             continue
 
         # Just orient the session - agent will register itself via MCP
-        log.info(f"New session {session_id[:8]} at {directory}")
+        log.info(
+            f"New session {session_id[:8]} at {directory} (created {created_ms}, updated {updated_ms})"
+        )
         orient_session(session_id, directory, agents)
 
 
