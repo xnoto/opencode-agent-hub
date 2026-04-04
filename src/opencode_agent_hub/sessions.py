@@ -485,6 +485,7 @@ def orient_session(session_id: str, directory: str, all_agents: dict[str, dict[s
         COORDINATOR_SESSION_ID,
         ORIENTED_SESSIONS,
     )
+    from opencode_agent_hub.coordinator import session_has_blocking_permissions
     from opencode_agent_hub.messaging import inject_message
 
     if not session_id:
@@ -494,6 +495,26 @@ def orient_session(session_id: str, directory: str, all_agents: dict[str, dict[s
     if session_id in ORIENTED_SESSIONS:
         log.debug(f"Session {session_id[:8]} already in ORIENTED_SESSIONS, skipping")
         return False  # Already oriented
+
+    # Fetch session details and check for blocking permissions
+    sessions = get_sessions()
+    session = None
+    if sessions is not None:
+        for s in sessions:
+            if s.get("id") == session_id:
+                session = s
+                break
+
+    if session is None:
+        log.warning(
+            f"Session {session_id[:8]} not found in API, proceeding with orientation anyway"
+        )
+    elif session_has_blocking_permissions(session):
+        log.error(
+            f"Session {session_id[:8]} at {directory} has blocking permissions (question:deny) "
+            "which prevents message injection. Skipping orientation."
+        )
+        return False
 
     # Skip coordinator session itself
     if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
