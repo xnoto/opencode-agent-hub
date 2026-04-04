@@ -535,6 +535,9 @@ def orient_session(session_id: str, directory: str, all_agents: dict[str, dict[s
         log.error(f"Failed to inject orientation into session {session_id[:8]}: {e}")
         return False
 
+    # DIAGNOSTICS: Verify the session is actually processing messages
+    _verify_session_processing(session_id, orientation)
+
     # Track that this session was oriented (pending agent registration)
     ORIENTED_SESSIONS.add(session_id)
     save_oriented_sessions()
@@ -543,6 +546,97 @@ def orient_session(session_id: str, directory: str, all_agents: dict[str, dict[s
 
     log.info(f"Oriented session {session_id[:8]} at {directory}")
     return True
+
+
+def _verify_session_processing(session_id: str, orientation_text: str) -> None:
+    """Verify that a session received and is processing the orientation message.
+
+    This helps diagnose whether:
+    - The message isn't reaching the session (blocking permissions)
+    - The session received it but isn't processing (disconnected UI)
+    - The session is working correctly
+
+    Args:
+        session_id: The session ID to check
+        orientation_text: The orientation message text that was injected
+    """
+    import requests
+    from opencode_agent_hub.config import OPENCODE_URL, INJECTION_TIMEOUT
+
+    # Wait 2 seconds for message to be processed
+    time.sleep(2)
+
+    # Fetch session messages from the API
+    try:
+        resp = requests.get(
+            f"{OPENCODE_URL}/session/{session_id}/message",
+            timeout=INJECTION_TIMEOUT,
+        )
+        resp.raise_for_status()
+        messages = resp.json()
+        if not isinstance(messages, list):
+            log.debug(f"Session {session_id[:8]}: messages API returned non-list")
+            return
+    except Exception as e:
+        log.debug(f"Session {session_id[:8]}: failed to fetch messages for diagnostics: {e}")
+        return
+
+    # Check if the orientation message appears in the session's message history
+    # Look for key text from the orientation message
+    orientation_found = False
+    orientation_timestamp = 0
+
+    for msg in messages:
+        parts = msg.get("parts", [])
+        for part in parts:
+            if part.get("type") == "text" and "Agent hub connected" in part.get("text", ""):
+                orientation_found = True
+                orientation_timestamp = msg.get("info", {}).get("time", 0)
+                break
+        if orientation_found:
+            break
+
+    if not orientation_found:
+        log.warning(
+            f"Session {session_id[:8]} did not receive orientation message - "
+            "may have blocking permissions or disconnected UI"
+        )
+        return
+
+    # Message was found - now check for assistant response
+    # Wait additional 3 seconds (total 5 seconds from injection) for assistant response
+    time.sleep(3)
+
+    # Fetch messages again to check for assistant response
+    try:
+        resp = requests.get(
+            f"{OPENCODE_URL}/session/{session_id}/message",
+            timeout=INJECTION_TIMEOUT,
+        )
+        resp.raise_for_status()
+        messages = resp.json()
+        if not isinstance(messages, list):
+            return
+    except Exception:
+        return
+
+    # Check if there's an assistant response after the orientation message
+    has_assistant_response = False
+    for msg in messages:
+        msg_time = msg.get("info", {}).get("time", 0)
+        if msg_time > orientation_timestamp:
+            role = msg.get("info", {}).get("role", "")
+            if role == "assistant":
+                has_assistant_response = True
+                break
+
+    if not has_assistant_response:
+        log.warning(
+            f"Session {session_id[:8]} received message but is not responding - "
+            "check that OpenCode UI is active"
+        )
+    else:
+        log.debug(f"Session {session_id[:8]} is processing messages correctly")
 
 
 def check_orientation_retries(agents: dict[str, dict[str, Any]]) -> None:
