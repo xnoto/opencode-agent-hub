@@ -43,7 +43,6 @@ def test_daemon_orients_new_session_once(test_db: Path, tmp_path: Path):
     """Verify daemon orients a new session exactly once."""
     from opencode_agent_hub.config import ORIENTED_SESSIONS
     from opencode_agent_hub.sessions import (
-        get_sessions_from_db,
         orient_session,
     )
 
@@ -89,7 +88,7 @@ def test_daemon_orients_new_session_once(test_db: Path, tmp_path: Path):
         mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):
-        # Call orient_session directly (not the infinite poller loop)
+        # Call orient_session directly - it should add to ORIENTED_SESSIONS after success
         result = orient_session(
             "ses_test_integration",
             "/tmp/test-project",
@@ -105,18 +104,21 @@ def test_daemon_orients_new_session_once(test_db: Path, tmp_path: Path):
     assert "AGENT HUB:" in text
     assert "EXECUTE NOW: agent-hub_register_agent" in text
 
-    # Verify session is tracked as oriented
+    # Verify session is tracked as oriented (orient_session adds it)
     assert "ses_test_integration" in ORIENTED_SESSIONS
 
     print("✅ Session oriented exactly once")
 
 
-def test_daemon_skips_already_oriented_session(test_db: Path):
-    """Verify daemon skips sessions already in ORIENTED_SESSIONS."""
+def test_orient_session_skips_already_oriented():
+    """Verify orient_session skips sessions already in ORIENTED_SESSIONS."""
     from opencode_agent_hub.config import ORIENTED_SESSIONS
     from opencode_agent_hub.sessions import orient_session
 
-    # Pre-populate oriented sessions
+    # Clear state
+    ORIENTED_SESSIONS.clear()
+
+    # Pre-add session to ORIENTED_SESSIONS (simulating it was already oriented)
     ORIENTED_SESSIONS.add("ses_already_oriented")
 
     injection_calls = []
@@ -135,6 +137,7 @@ def test_daemon_skips_already_oriented_session(test_db: Path):
         mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):
+        # Call orient_session for an already-oriented session
         result = orient_session(
             "ses_already_oriented",
             "/tmp/test",
@@ -142,11 +145,11 @@ def test_daemon_skips_already_oriented_session(test_db: Path):
             session=session,
         )
 
-    # Verify no injection occurred
+    # Should return False (skipped) and not inject
     assert result is False
-    assert len(injection_calls) == 0, "Should not inject to already-oriented session"
+    assert len(injection_calls) == 0, "Should not inject for already-oriented session"
 
-    print("✅ Already-oriented session skipped")
+    print("✅ orient_session correctly skips already-oriented sessions")
 
 
 def test_orient_session_thread_safe():
@@ -229,6 +232,49 @@ def test_session_detection_from_sqlite(test_db: Path):
     print("✅ Sessions detected from SQLite")
 
 
+def test_orient_session_idempotent():
+    """Verify calling orient_session twice on same session only injects once."""
+    from opencode_agent_hub.config import ORIENTED_SESSIONS
+    from opencode_agent_hub.sessions import orient_session
+
+    ORIENTED_SESSIONS.clear()
+
+    injection_calls = []
+
+    def mock_inject(session_id: str, text: str) -> None:
+        injection_calls.append((session_id, text))
+
+    agents = {}
+    session = {
+        "id": "ses_idempotent",
+        "directory": "/tmp/test",
+        "time": {"created": int(time.time() * 1000)},
+    }
+
+    with (
+        mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
+        mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
+        mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
+    ):
+        # First call - should inject
+        result1 = orient_session("ses_idempotent", "/tmp/test", agents, session=session)
+
+        # Second call - should skip
+        result2 = orient_session("ses_idempotent", "/tmp/test", agents, session=session)
+
+    # First call succeeds, second is skipped
+    assert result1 is True
+    assert result2 is False
+
+    # Only one injection total
+    assert len(injection_calls) == 1, f"Expected 1 injection, got {len(injection_calls)}"
+
+    # Session is in ORIENTED_SESSIONS
+    assert "ses_idempotent" in ORIENTED_SESSIONS
+
+    print("✅ orient_session is idempotent")
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
@@ -255,8 +301,9 @@ if __name__ == "__main__":
 
         # Run tests
         test_daemon_orients_new_session_once(db_path, Path(tmpdir))
-        test_daemon_skips_already_oriented_session(db_path)
+        test_orient_session_skips_already_oriented()
         test_orient_session_thread_safe()
         test_session_detection_from_sqlite(db_path)
+        test_orient_session_idempotent()
 
         print("\n✅ All integration tests passed!")

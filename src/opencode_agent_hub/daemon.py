@@ -74,6 +74,8 @@ from opencode_agent_hub.config import (
     METRICS_FILE,
     METRICS_INTERVAL,
     OPENCODE_STORAGE_DIR,
+    ORIENTED_SESSIONS,
+    SESSION_AGENTS,
     SESSION_POLL_SECONDS,
     THREADS_DIR,
     log,
@@ -109,7 +111,6 @@ from opencode_agent_hub.persistence import (
 from opencode_agent_hub.preflight import check_agent_hub_mcp_configured
 from opencode_agent_hub.service import install_systemd_service, uninstall_systemd_service
 from opencode_agent_hub.sessions import check_orientation_retries, poll_active_sessions
-from opencode_agent_hub.config import ORIENTED_SESSIONS, SESSION_AGENTS
 
 # Module-level state variable (initialized in main())
 DAEMON_START_TIME_MS: int = 0
@@ -174,8 +175,8 @@ Examples:
 
     # Load persisted state
     # Only sessions created AFTER daemon starts will be oriented
-    from opencode_agent_hub.config import ORIENTATION_PENDING
     import opencode_agent_hub.config as config_module
+    from opencode_agent_hub.config import ORIENTATION_PENDING
 
     DAEMON_START_TIME_MS = int(time.time() * 1000)
     config_module.DAEMON_START_TIME_MS = DAEMON_START_TIME_MS

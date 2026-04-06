@@ -577,7 +577,7 @@ def poll_active_sessions(
                 if session_id in ORIENTED_SESSIONS:
                     continue
 
-                # Orient this session
+                # Orient this session (orient_session will add to ORIENTED_SESSIONS after success)
                 orient_session(session_id, directory, agents, session=session)
 
         except Exception as e:
@@ -657,11 +657,12 @@ def orient_session(
         log.warning("orient_session called with empty session_id")
         return False
 
-    # Use lock to prevent race conditions
+    # Use lock to prevent concurrent modifications
     with ORIENTED_SESSIONS_LOCK:
+        # Check if already oriented (race condition protection)
         if session_id in ORIENTED_SESSIONS:
-            log.debug(f"Session {session_id[:8]} already in ORIENTED_SESSIONS, skipping")
-            return False  # Already oriented
+            log.debug(f"Session {session_id[:8]} already oriented, skipping")
+            return False
 
         # Fetch session details and check for blocking permissions
         if session is None:
@@ -682,20 +683,14 @@ def orient_session(
                 f"Session {session_id[:8]} at {directory} has blocking permissions (question:deny) "
                 "which prevents message injection. Skipping orientation."
             )
-            ORIENTED_SESSIONS.add(session_id)  # Mark as oriented to avoid retry
             return False
 
         # Skip coordinator session itself
         if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
             log.debug(f"Session {session_id[:8]} is coordinator, skipping orientation")
-            ORIENTED_SESSIONS.add(session_id)
+            ORIENTED_SESSIONS.add(session_id)  # Track coordinator as "oriented"
             save_oriented_sessions()
             return True
-
-        # Double-check ORIENTED_SESSIONS before injection (prevents race)
-        if session_id in ORIENTED_SESSIONS:
-            log.debug(f"Session {session_id[:8]} was oriented while waiting, skipping")
-            return False
 
         # Generate deterministic agent ID for this session
         session_for_id = session if session else {"id": session_id}
@@ -708,6 +703,7 @@ def orient_session(
 
         try:
             inject_message(session_id, orientation)
+            # Add to ORIENTED_SESSIONS only after successful injection
             ORIENTED_SESSIONS.add(session_id)
             save_oriented_sessions()
         except Exception as e:
@@ -833,8 +829,8 @@ def check_orientation_retries(agents: dict[str, dict[str, Any]]) -> None:
     """
     from opencode_agent_hub.config import (  # noqa: I001
         ORIENTATION_PENDING,
-        ORIENTATION_RETRY_DELAY,  # noqa: F401
-        ORIENTATION_RETRY_MAX,  # noqa: F401
+        ORIENTATION_RETRY_DELAY,
+        ORIENTATION_RETRY_MAX,
     )
 
     if not ORIENTATION_PENDING:
