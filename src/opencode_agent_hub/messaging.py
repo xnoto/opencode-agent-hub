@@ -25,7 +25,7 @@ from opencode_agent_hub.config import (
     log,
 )
 from opencode_agent_hub.metrics import metrics
-from opencode_agent_hub.models import InjectionTask, MessageTask, SessionTask
+from opencode_agent_hub.models import InjectionTask, MessageTask
 from opencode_agent_hub.persistence import check_thread_resolution, ensure_thread_id, load_agents
 from opencode_agent_hub.rate_limiting import check_rate_limit, record_message_sent
 from opencode_agent_hub.sessions import find_sessions_for_agent, format_notification, get_sessions
@@ -34,7 +34,6 @@ from opencode_agent_hub.utils import validate_path_within_dir
 # Work queues (module level for handler access)
 _injection_queue: queue.Queue[InjectionTask] = queue.Queue()
 _message_queue: queue.Queue[MessageTask] = queue.Queue()
-_session_queue: queue.Queue[SessionTask] = queue.Queue()
 
 
 def get_injection_queue() -> queue.Queue[InjectionTask]:
@@ -45,11 +44,6 @@ def get_injection_queue() -> queue.Queue[InjectionTask]:
 def get_message_queue() -> queue.Queue[MessageTask]:
     """Get the message queue (for daemon initialization)."""
     return _message_queue
-
-
-def get_session_queue() -> queue.Queue[SessionTask]:
-    """Get the session queue (for daemon initialization)."""
-    return _session_queue
 
 
 def inject_message_sync(session_id: str, text: str) -> bool:
@@ -129,27 +123,6 @@ def message_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> 
             log.error(f"Message worker error: {e}")
         finally:
             _message_queue.task_done()
-
-
-def session_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> None:
-    """Worker thread that processes session orientation queue."""
-    from opencode_agent_hub.sessions import process_session_file
-
-    while not shutdown_event.is_set():
-        try:
-            task = _session_queue.get(timeout=1)
-        except queue.Empty:
-            continue
-
-        try:
-            # Small delay to ensure file is fully written
-            time.sleep(0.2)
-            if task.path.exists():
-                process_session_file(task.path, agents)
-        except Exception as e:
-            log.error(f"Session worker error: {e}")
-        finally:
-            _session_queue.task_done()
 
 
 def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:

@@ -98,7 +98,6 @@ from opencode_agent_hub.messaging import (
     get_message_queue,
     injection_worker,
     message_worker,
-    session_worker,
 )
 from opencode_agent_hub.metrics import metrics
 from opencode_agent_hub.models import PreflightError
@@ -256,7 +255,7 @@ Examples:
         """Background thread that polls for new active sessions."""
         while not shutdown_event.is_set():
             try:
-                poll_active_sessions(agents)
+                poll_active_sessions(agents, shutdown_event)
                 check_orientation_retries(agents)
             except Exception as e:
                 log.error(f"Session poller error: {e}")
@@ -331,11 +330,6 @@ Examples:
         threading.Thread(
             target=lambda: message_worker(agents, shutdown_event),
             name="message-worker",
-            daemon=True,
-        ),
-        threading.Thread(
-            target=lambda: session_worker(agents, shutdown_event),
-            name="session-worker",
             daemon=True,
         ),
     ]
