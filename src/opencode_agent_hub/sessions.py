@@ -773,7 +773,12 @@ def _verify_session_processing(session_id: str, orientation_text: str) -> None:
         for part in parts:
             if part.get("type") == "text" and "AGENT HUB:" in part.get("text", ""):
                 orientation_found = True
-                orientation_timestamp = msg.get("info", {}).get("time", 0)
+                # Handle time as either int or dict with 'start' key
+                time_val = msg.get("info", {}).get("time", 0)
+                if isinstance(time_val, dict):
+                    orientation_timestamp = time_val.get("start", 0)
+                else:
+                    orientation_timestamp = time_val
                 break
         if orientation_found:
             break
@@ -805,7 +810,12 @@ def _verify_session_processing(session_id: str, orientation_text: str) -> None:
     # Check if there's an assistant response after the orientation message
     has_assistant_response = False
     for msg in messages:
-        msg_time = msg.get("info", {}).get("time", 0)
+        # Handle time as either int or dict with 'start' key
+        time_val = msg.get("info", {}).get("time", 0)
+        if isinstance(time_val, dict):
+            msg_time = time_val.get("start", 0)
+        else:
+            msg_time = time_val
         if msg_time > orientation_timestamp:
             role = msg.get("info", {}).get("role", "")
             if role == "assistant":
