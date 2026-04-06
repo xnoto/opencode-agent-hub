@@ -387,7 +387,7 @@ def _get_recent_hub_error_context(session_id: str, max_entries: int = 2) -> str:
 def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int, after_ms: int = 0) -> bool:
     """Wait for coordinator readiness based on READY or assistant activity."""
     deadline = time.time() + max(1, timeout_seconds)
-    last_log_time = 0
+    last_log_time = 0.0
     log_interval = 10  # Log progress every 10 seconds
 
     while time.time() < deadline:
@@ -437,16 +437,18 @@ def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int, after_ms:
     # Timeout - provide detailed diagnostics
     config.log.error(f"Coordinator {session_id[:8]} timeout after {timeout_seconds}s")
     config.log.error(f"  STRICT_READY mode: {config.COORDINATOR_STRICT_READY}")
-    config.log.error(f"  Looking for: exact 'READY' text in assistant message")
+    config.log.error("  Looking for: exact 'READY' text in assistant message")
 
     messages = _fetch_session_messages(session_id)
     msg_count = len(messages)
-    assistant_msgs = [m for m in messages if m.get("info", {}).get("role") == "assistant"]
-    config.log.error(f"  Total messages: {msg_count}, Assistant messages: {len(assistant_msgs)}")
+    assistant_msg_list = [m for m in messages if m.get("info", {}).get("role") == "assistant"]
+    config.log.error(
+        f"  Total messages: {msg_count}, Assistant messages: {len(assistant_msg_list)}"
+    )
 
-    if assistant_msgs:
+    if assistant_msg_list:
         config.log.error("  Recent assistant messages received:")
-        for i, msg in enumerate(assistant_msgs[-3:], 1):
+        for i, msg in enumerate(assistant_msg_list[-3:], 1):
             parts = msg.get("parts", [])
             text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
             for text in text_parts:
