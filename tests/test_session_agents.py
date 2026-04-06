@@ -12,6 +12,8 @@ from opencode_agent_hub.persistence import (
 )
 from opencode_agent_hub.sessions import (
     find_session_for_agent,
+    find_sessions_for_agent,
+    format_notification,
     generate_agent_id_for_session,
     get_sessions_from_db,
 )
@@ -286,3 +288,140 @@ def test_get_sessions_from_db_reads_sessions(tmp_path: Path) -> None:
         assert session["title"] == "Test Session"
         assert session["time"]["created"] == 1700000000000
         assert session["time"]["updated"] == 1700000060000
+
+
+# =============================================================================
+# Tests for find_sessions_for_agent
+# =============================================================================
+
+
+def test_find_sessions_for_agent_by_session_id() -> None:
+    """Verify find_sessions_for_agent works with sessionId field."""
+    agent = {
+        "id": "test-agent",
+        "sessionId": "ses_target",
+        "projectPath": "/home/user/project",
+    }
+
+    sessions = [
+        {"id": "ses_other", "directory": "/home/user/other"},
+        {"id": "ses_target", "directory": "/home/user/project"},
+    ]
+
+    result = find_sessions_for_agent(agent, sessions)
+
+    assert len(result) == 1
+    assert result[0]["id"] == "ses_target"
+
+
+def test_find_sessions_for_agent_fallback_directory() -> None:
+    """Verify find_sessions_for_agent falls back to directory matching."""
+    agent = {
+        "id": "test-agent",
+        # No sessionId - uses projectPath
+        "projectPath": "/home/user/project",
+    }
+
+    sessions = [
+        {"id": "ses_match", "directory": "/home/user/project"},
+        {"id": "ses_other", "directory": "/home/user/other"},
+    ]
+
+    result = find_sessions_for_agent(agent, sessions)
+
+    assert len(result) == 1
+    assert result[0]["id"] == "ses_match"
+
+
+def test_find_sessions_for_agent_returns_most_recent() -> None:
+    """Verify returns most recent session when multiple match."""
+    agent = {
+        "id": "test-agent",
+        "projectPath": "/home/user/project",
+    }
+
+    sessions = [
+        {
+            "id": "ses_older",
+            "directory": "/home/user/project",
+            "time": {"updated": 1000},
+        },
+        {
+            "id": "ses_newer",
+            "directory": "/home/user/project",
+            "time": {"updated": 2000},
+        },
+    ]
+
+    result = find_sessions_for_agent(agent, sessions)
+
+    assert len(result) == 1
+    assert result[0]["id"] == "ses_newer"
+
+
+def test_find_sessions_for_agent_no_match() -> None:
+    """Verify empty list returned when no sessions match."""
+    agent = {
+        "id": "test-agent",
+        "sessionId": "ses_nonexistent",
+        "projectPath": "/home/user/project",
+    }
+
+    sessions = [
+        {"id": "ses_other", "directory": "/home/user/other"},
+    ]
+
+    result = find_sessions_for_agent(agent, sessions)
+
+    assert result == []
+
+
+# =============================================================================
+# Tests for format_notification
+# =============================================================================
+
+
+def test_format_notification_basic() -> None:
+    """Test basic message formatting."""
+    msg = {
+        "from": "agent-a",
+        "type": "task",
+        "content": "Please review this code",
+        "priority": "normal",
+    }
+
+    result = format_notification(msg, "agent-b")
+
+    assert "[task] from agent-a" in result
+    assert "Please review this code" in result
+    assert 'agent-hub_send_message(from="agent-b"' in result
+
+
+def test_format_notification_urgent() -> None:
+    """Test urgent priority adds prefix."""
+    msg = {
+        "from": "agent-a",
+        "type": "task",
+        "content": "Critical bug fix needed",
+        "priority": "urgent",
+    }
+
+    result = format_notification(msg, "agent-b")
+
+    assert result.startswith("URGENT: ")
+    assert "[task] from agent-a" in result
+
+
+def test_format_notification_with_thread() -> None:
+    """Test thread ID inclusion."""
+    msg = {
+        "from": "agent-a",
+        "type": "context",
+        "content": "Update on progress",
+        "priority": "normal",
+        "threadId": "thread-123",
+    }
+
+    result = format_notification(msg, "agent-b")
+
+    assert "(thread: thread-123)" in result

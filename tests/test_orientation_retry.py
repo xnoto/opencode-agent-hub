@@ -229,6 +229,30 @@ def test_empty_pending_is_noop() -> None:
     assert len(config.ORIENTATION_PENDING) == 0
 
 
+def test_format_orientation_with_agent_id_and_path() -> None:
+    """Test imperative format with actual values."""
+    result = format_orientation(
+        {},
+        agent_id="warm-mamba",
+        project_path="/home/user/project",
+    )
+
+    assert "AGENT HUB:" in result
+    assert "Your assigned ID: warm-mamba" in result
+    assert "Project path: /home/user/project" in result
+    assert 'EXECUTE NOW: agent-hub_register_agent("warm-mamba", "/home/user/project"' in result
+
+
+def test_format_orientation_without_params() -> None:
+    """Test fallback format without values."""
+    result = format_orientation({})
+
+    assert "AGENT HUB:" in result
+    assert "EXECUTE NOW: agent-hub_register_agent" in result
+    assert "<choose-your-own-name>" in result
+    assert "<your-project-path>" in result
+
+
 def test_format_orientation_includes_tools() -> None:
     """format_orientation should mention available tools."""
     result = format_orientation({})
@@ -242,3 +266,33 @@ def test_orient_session_skips_without_session_id() -> None:
     """orient_session should return False for empty session_id."""
     result = orient_session("", "/tmp/test", {})
     assert result is False
+
+
+def test_verify_session_processing_detects_agent_hub_message() -> None:
+    """Test verification detects new AGENT HUB: message format."""
+    from opencode_agent_hub.sessions import _verify_session_processing
+
+    session_id = "ses_test_verify"
+    orientation_text = "AGENT HUB: You must register now"
+
+    # Mock API response with AGENT HUB message
+    mock_messages = [
+        {
+            "info": {"time": 1000, "role": "user"},
+            "parts": [{"type": "text", "text": "AGENT HUB: You must register now"}],
+        }
+    ]
+
+    with (
+        mock.patch("requests.get") as mock_get,
+        mock.patch("time.sleep"),  # Skip delays
+    ):
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = mock_messages
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        # Should not raise and should detect the message
+        _verify_session_processing(session_id, orientation_text)
+
+        mock_get.assert_called()
