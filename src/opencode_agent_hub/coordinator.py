@@ -505,6 +505,19 @@ def start_coordinator() -> bool:
 
     config.log.info("Starting coordinator session...")
 
+    # Read and log the coordinator model from opencode.json
+    try:
+        opencode_json_path = config.COORDINATOR_DIR / "opencode.json"
+        if opencode_json_path.exists():
+            import json
+
+            with open(opencode_json_path) as f:
+                opencode_config = json.load(f)
+            model = opencode_config.get("model", "default")
+            config.log.info(f"Coordinator model: {model}")
+    except Exception as e:
+        config.log.debug(f"Could not read coordinator model from opencode.json: {e}")
+
     # Create session via HTTP API instead of CLI to inherit global permissions
     try:
         coordinator_title = config._get_coordinator_title()
