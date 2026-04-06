@@ -569,9 +569,9 @@ def poll_active_sessions(
                     created_ms = created_ms.get("start", 0)
 
                 if created_ms < DAEMON_START_TIME_MS:
-                    # Check if this is an active session we should still orient
-                    # (e.g., if daemon was restarted)
-                    pass  # Continue with orientation logic
+                    # Skip sessions created before daemon started
+                    # (Unless already oriented, e.g., if daemon was restarted)
+                    continue
 
                 # Skip already-oriented sessions
                 if session_id in ORIENTED_SESSIONS:
