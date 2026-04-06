@@ -648,6 +648,7 @@ def orient_session(
     from opencode_agent_hub.config import (  # noqa: I001
         COORDINATOR_SESSION_ID,
         ORIENTED_SESSIONS,
+        ORIENTED_SESSIONS_LOCK,
     )
     from opencode_agent_hub.coordinator import session_has_blocking_permissions
     from opencode_agent_hub.messaging import inject_message
@@ -656,74 +657,82 @@ def orient_session(
         log.warning("orient_session called with empty session_id")
         return False
 
-    if session_id in ORIENTED_SESSIONS:
-        log.debug(f"Session {session_id[:8]} already in ORIENTED_SESSIONS, skipping")
-        return False  # Already oriented
+    # Use lock to prevent race conditions
+    with ORIENTED_SESSIONS_LOCK:
+        if session_id in ORIENTED_SESSIONS:
+            log.debug(f"Session {session_id[:8]} already in ORIENTED_SESSIONS, skipping")
+            return False  # Already oriented
 
-    # Fetch session details and check for blocking permissions
-    if session is None:
-        sessions = get_sessions()
-        session = None
-        if sessions is not None:
-            for s in sessions:
-                if s.get("id") == session_id:
-                    session = s
-                    break
+        # Fetch session details and check for blocking permissions
+        if session is None:
+            sessions = get_sessions()
+            session = None
+            if sessions is not None:
+                for s in sessions:
+                    if s.get("id") == session_id:
+                        session = s
+                        break
 
-    if session is None:
-        log.warning(
-            f"Session {session_id[:8]} not found in API, proceeding with orientation anyway"
-        )
-    elif session_has_blocking_permissions(session):
-        log.error(
-            f"Session {session_id[:8]} at {directory} has blocking permissions (question:deny) "
-            "which prevents message injection. Skipping orientation."
-        )
-        return False
+        if session is None:
+            log.warning(
+                f"Session {session_id[:8]} not found in API, proceeding with orientation anyway"
+            )
+        elif session_has_blocking_permissions(session):
+            log.error(
+                f"Session {session_id[:8]} at {directory} has blocking permissions (question:deny) "
+                "which prevents message injection. Skipping orientation."
+            )
+            ORIENTED_SESSIONS.add(session_id)  # Mark as oriented to avoid retry
+            return False
 
-    # Skip coordinator session itself
-    if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
-        log.debug(f"Session {session_id[:8]} is coordinator, skipping orientation")
-        ORIENTED_SESSIONS.add(session_id)
-        save_oriented_sessions()
-        return True
+        # Skip coordinator session itself
+        if COORDINATOR_SESSION_ID and session_id == COORDINATOR_SESSION_ID:
+            log.debug(f"Session {session_id[:8]} is coordinator, skipping orientation")
+            ORIENTED_SESSIONS.add(session_id)
+            save_oriented_sessions()
+            return True
 
-    # Generate deterministic agent ID for this session
-    session_for_id = session if session else {"id": session_id}
-    agent_id = generate_agent_id_for_session(session_for_id)
+        # Double-check ORIENTED_SESSIONS before injection (prevents race)
+        if session_id in ORIENTED_SESSIONS:
+            log.debug(f"Session {session_id[:8]} was oriented while waiting, skipping")
+            return False
 
-    # Inject orientation message with actual values
-    orientation = format_orientation(all_agents, agent_id=agent_id, project_path=directory)
-    log.info(f"Injecting orientation into session {session_id[:8]} at {directory}")
-    log.debug(f"Orientation message: {orientation[:100]}...")
+        # Generate deterministic agent ID for this session
+        session_for_id = session if session else {"id": session_id}
+        agent_id = generate_agent_id_for_session(session_for_id)
 
-    try:
-        inject_message(session_id, orientation)
-        ORIENTED_SESSIONS.add(session_id)
-        save_oriented_sessions()
+        # Inject orientation message with actual values
+        orientation = format_orientation(all_agents, agent_id=agent_id, project_path=directory)
+        log.info(f"Injecting orientation into session {session_id[:8]} at {directory}")
+        log.debug(f"Orientation message: {orientation[:100]}...")
 
-        # Add to pending tracking for retry logic
-        from opencode_agent_hub.config import ORIENTATION_PENDING
+        try:
+            inject_message(session_id, orientation)
+            ORIENTED_SESSIONS.add(session_id)
+            save_oriented_sessions()
+        except Exception as e:
+            log.error(f"Failed to orient session {session_id[:8]}: {e}")
+            return False
 
-        ORIENTATION_PENDING[session_id] = {
-            "agent_id": agent_id,
-            "oriented_at": time.time(),
-            "retries": 0,
-            "project_path": directory,
-        }
+    # Add to pending tracking for retry logic (outside lock to avoid holding it)
+    from opencode_agent_hub.config import ORIENTATION_PENDING
 
-        # Schedule verification callback
-        import threading
+    ORIENTATION_PENDING[session_id] = {
+        "agent_id": agent_id,
+        "oriented_at": time.time(),
+        "retries": 0,
+        "project_path": directory,
+    }
 
-        def verify_callback():
-            _verify_session_processing(session_id, orientation)
+    # Schedule verification callback
+    import threading
 
-        threading.Timer(5.0, verify_callback).start()
+    def verify_callback():
+        _verify_session_processing(session_id, orientation)
 
-        return True
-    except Exception as e:
-        log.error(f"Failed to orient session {session_id[:8]}: {e}")
-        return False
+    threading.Timer(5.0, verify_callback).start()
+
+    return True
 
 
 def _verify_session_processing(session_id: str, orientation_text: str) -> None:

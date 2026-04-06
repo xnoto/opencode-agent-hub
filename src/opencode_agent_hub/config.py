@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import subprocess
+import threading
 import time
 
 # For accessing package data files reliably across install methods (pip, deb, rpm, aur)
@@ -285,6 +286,9 @@ LOG_LEVEL = _get_config_value(
 
 # Track which sessions have been oriented
 ORIENTED_SESSIONS: set[str] = set()
+
+# Threading lock for ORIENTED_SESSIONS access
+ORIENTED_SESSIONS_LOCK = threading.Lock()
 
 # Track session-to-agent mappings
 SESSION_AGENTS: dict[str, dict[str, Any]] = {}
