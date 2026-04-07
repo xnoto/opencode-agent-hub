@@ -373,10 +373,11 @@ class AgentHandler(FileSystemEventHandler):
         """Handle a newly registered agent file.
 
         Loads the agent and notifies coordinator if this is a new registration.
-        Rejects duplicate registrations from the same session.
+        Rejects duplicate registrations from the same session or directory.
         """
         from opencode_agent_hub.coordinator import notify_coordinator_new_agent
         from opencode_agent_hub.config import SESSION_AGENTS
+        from opencode_agent_hub.persistence import load_agents, remove_agent, save_session_agents
 
         try:
             agent = json.loads(path.read_text())
@@ -384,39 +385,56 @@ class AgentHandler(FileSystemEventHandler):
             directory = agent.get("projectPath", "")
             session_id = agent.get("sessionId", "")
 
+            log.debug(
+                f"Processing agent registration: id={agent_id}, "
+                f"session={session_id[:8] if session_id else 'none'}, "
+                f"dir={directory}"
+            )
+
             if not agent_id:
+                log.debug(f"Agent file {path.name} has no id, skipping")
                 return
 
             # Skip coordinator (handled separately)
             if agent_id == "coordinator":
+                log.debug(f"Skipping coordinator agent file")
                 return
 
             # Check if this session already has an agent registered
             if session_id and session_id in SESSION_AGENTS:
                 existing_agent = SESSION_AGENTS[session_id]
-                if existing_agent.get("id") != agent_id:
+                existing_id = existing_agent.get("id")
+                if existing_id != agent_id:
                     log.warning(
-                        f"Session {session_id[:8]} already has agent '{existing_agent.get('id')}', "
-                        f"ignoring new registration as '{agent_id}'"
+                        f"Session {session_id[:8]} already has agent '{existing_id}', "
+                        f"rejecting duplicate registration as '{agent_id}'"
                     )
-                    # Remove the duplicate agent file
-                    try:
-                        path.unlink()
-                        log.info(f"Removed duplicate agent file: {path.name}")
-                    except OSError:
-                        pass
+                    remove_agent(agent_id)
                     return
+                else:
+                    log.debug(f"Agent {agent_id} re-registered for same session {session_id[:8]}")
             elif session_id:
                 # Track this session->agent mapping
                 SESSION_AGENTS[session_id] = agent
-                from opencode_agent_hub.persistence import save_session_agents
-
                 save_session_agents()
                 log.debug(f"Tracked session {session_id[:8]} -> agent {agent_id}")
 
+            # Check if this directory already has an agent registered
+            all_agents = load_agents()
+            for other_id, other_agent in all_agents.items():
+                if other_id != agent_id and other_agent.get("projectPath") == directory:
+                    log.warning(
+                        f"Directory {directory} already has agent '{other_id}', "
+                        f"rejecting duplicate registration as '{agent_id}'"
+                    )
+                    remove_agent(agent_id)
+                    return
+
             # Notify coordinator of new agent
             notify_coordinator_new_agent(agent_id, directory)
-            log.info(f"Notified coordinator of new agent: {agent_id}")
+            log.info(
+                f"Registered new agent: {agent_id} (session: {session_id[:8] if session_id else 'none'}, dir: {directory})"
+            )
 
         except (json.JSONDecodeError, OSError) as e:
             log.warning(f"Failed to handle new agent file {path}: {e}")
