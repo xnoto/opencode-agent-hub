@@ -373,13 +373,16 @@ class AgentHandler(FileSystemEventHandler):
         """Handle a newly registered agent file.
 
         Loads the agent and notifies coordinator if this is a new registration.
+        Rejects duplicate registrations from the same session.
         """
         from opencode_agent_hub.coordinator import notify_coordinator_new_agent
+        from opencode_agent_hub.config import SESSION_AGENTS
 
         try:
             agent = json.loads(path.read_text())
             agent_id = agent.get("id")
             directory = agent.get("projectPath", "")
+            session_id = agent.get("sessionId", "")
 
             if not agent_id:
                 return
@@ -387,6 +390,29 @@ class AgentHandler(FileSystemEventHandler):
             # Skip coordinator (handled separately)
             if agent_id == "coordinator":
                 return
+
+            # Check if this session already has an agent registered
+            if session_id and session_id in SESSION_AGENTS:
+                existing_agent = SESSION_AGENTS[session_id]
+                if existing_agent.get("id") != agent_id:
+                    log.warning(
+                        f"Session {session_id[:8]} already has agent '{existing_agent.get('id')}', "
+                        f"ignoring new registration as '{agent_id}'"
+                    )
+                    # Remove the duplicate agent file
+                    try:
+                        path.unlink()
+                        log.info(f"Removed duplicate agent file: {path.name}")
+                    except OSError:
+                        pass
+                    return
+            elif session_id:
+                # Track this session->agent mapping
+                SESSION_AGENTS[session_id] = agent
+                from opencode_agent_hub.persistence import save_session_agents
+
+                save_session_agents()
+                log.debug(f"Tracked session {session_id[:8]} -> agent {agent_id}")
 
             # Notify coordinator of new agent
             notify_coordinator_new_agent(agent_id, directory)
