@@ -98,8 +98,10 @@ from opencode_agent_hub.messaging import (
     SessionHandler,
     get_injection_queue,
     get_message_queue,
+    get_session_queue,
     injection_worker,
     message_worker,
+    session_worker,
 )
 from opencode_agent_hub.metrics import metrics
 from opencode_agent_hub.models import PreflightError
@@ -335,6 +337,11 @@ Examples:
         threading.Thread(
             target=lambda: message_worker(agents, shutdown_event),
             name="message-worker",
+            daemon=True,
+        ),
+        threading.Thread(
+            target=lambda: session_worker(agents, shutdown_event),
+            name="session-worker",
             daemon=True,
         ),
     ]

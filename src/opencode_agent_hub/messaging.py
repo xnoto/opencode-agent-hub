@@ -25,7 +25,7 @@ from opencode_agent_hub.config import (
     log,
 )
 from opencode_agent_hub.metrics import metrics
-from opencode_agent_hub.models import InjectionTask, MessageTask
+from opencode_agent_hub.models import InjectionTask, MessageTask, SessionTask
 from opencode_agent_hub.persistence import check_thread_resolution, ensure_thread_id, load_agents
 from opencode_agent_hub.rate_limiting import check_rate_limit, record_message_sent
 from opencode_agent_hub.sessions import find_sessions_for_agent, format_notification, get_sessions
@@ -34,6 +34,7 @@ from opencode_agent_hub.utils import validate_path_within_dir
 # Work queues (module level for handler access)
 _injection_queue: queue.Queue[InjectionTask] = queue.Queue()
 _message_queue: queue.Queue[MessageTask] = queue.Queue()
+_session_queue: queue.Queue[SessionTask] = queue.Queue()
 
 
 def get_injection_queue() -> queue.Queue[InjectionTask]:
@@ -44,6 +45,63 @@ def get_injection_queue() -> queue.Queue[InjectionTask]:
 def get_message_queue() -> queue.Queue[MessageTask]:
     """Get the message queue (for daemon initialization)."""
     return _message_queue
+
+
+def get_session_queue() -> queue.Queue[SessionTask]:
+    """Get the session queue (for daemon initialization)."""
+    return _session_queue
+
+
+def session_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> None:
+    """Worker thread that processes new session files for orientation."""
+    from opencode_agent_hub.sessions import orient_session
+
+    while not shutdown_event.is_set():
+        try:
+            task = _session_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+
+        try:
+            # Extract session ID from filename (ses_XXXX.json)
+            session_id = task.path.stem
+
+            # Get session details from API
+            sessions = get_sessions()
+            if not sessions:
+                continue
+
+            session = None
+            for s in sessions:
+                if s.get("id") == session_id:
+                    session = s
+                    break
+
+            if not session:
+                log.debug(f"Session {session_id[:8]} not found in API yet, skipping")
+                continue
+
+            # Check if session was created after daemon started
+            created_ms = session.get("time", {}).get("created", 0)
+            if isinstance(created_ms, dict):
+                created_ms = created_ms.get("start", 0)
+
+            from opencode_agent_hub.config import DAEMON_START_TIME_MS
+
+            if created_ms < DAEMON_START_TIME_MS:
+                log.debug(f"Session {session_id[:8]} created before daemon, skipping")
+                continue
+
+            # Orient the session
+            directory = session.get("directory", "")
+            if directory:
+                log.info(f"Orienting new session from file watcher: {session_id[:8]}")
+                orient_session(session_id, directory, agents, session=session)
+
+        except Exception as e:
+            log.error(f"Session worker error: {e}")
+        finally:
+            _session_queue.task_done()
 
 
 def inject_message_sync(session_id: str, text: str) -> bool:
