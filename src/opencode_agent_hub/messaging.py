@@ -47,11 +47,6 @@ def get_message_queue() -> queue.Queue[MessageTask]:
     return _message_queue
 
 
-def get_session_queue() -> queue.Queue[SessionTask]:
-    """Get the session queue (for daemon initialization)."""
-    return _session_queue
-
-
 def session_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> None:
     """Worker thread that processes new session files for orientation."""
     from opencode_agent_hub.sessions import orient_session
@@ -375,8 +370,8 @@ class AgentHandler(FileSystemEventHandler):
         Loads the agent and notifies coordinator if this is a new registration.
         Rejects duplicate registrations from the same session or directory.
         """
-        from opencode_agent_hub.coordinator import notify_coordinator_new_agent
         from opencode_agent_hub.config import SESSION_AGENTS
+        from opencode_agent_hub.coordinator import notify_coordinator_new_agent
         from opencode_agent_hub.persistence import load_agents, remove_agent, save_session_agents
 
         try:
@@ -397,7 +392,7 @@ class AgentHandler(FileSystemEventHandler):
 
             # Skip coordinator (handled separately)
             if agent_id == "coordinator":
-                log.debug(f"Skipping coordinator agent file")
+                log.debug("Skipping coordinator agent file")
                 return
 
             # Check if this session already has an agent registered

@@ -290,13 +290,6 @@ def check_thread_resolution(msg: dict[str, Any]) -> bool:
     return False
 
 
-def save_agent(agent: dict[str, Any]) -> None:
-    """Save an agent to disk."""
-    AGENTS_DIR.mkdir(parents=True, exist_ok=True)
-    agent_file = AGENTS_DIR / f"{agent['id']}.json"
-    atomic_write_json(agent_file, agent, indent=2)
-
-
 def remove_agent(agent_id: str) -> bool:
     """Remove an agent file from disk."""
     agent_file = AGENTS_DIR / f"{agent_id}.json"

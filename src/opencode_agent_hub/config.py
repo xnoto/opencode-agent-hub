@@ -7,7 +7,6 @@ environment variables > config file > defaults
 import json
 import logging
 import os
-import subprocess
 import threading
 import time
 
@@ -296,18 +295,12 @@ SESSION_AGENTS: dict[str, dict[str, Any]] = {}
 # Track pending orientation retries
 ORIENTATION_PENDING: dict[str, dict] = {}
 
-# Rate limiting state
-_agent_message_times: dict[str, list[float]] = {}
-
 # Session cache (avoids repeated API calls)
 _sessions_cache: list[dict] = []
 _sessions_cache_time: float = 0
 
 # Coordinator session ID
 COORDINATOR_SESSION_ID: str | None = None
-
-# Hub server process
-HUB_SERVER_PROCESS: subprocess.Popen | None = None
 
 # Daemon start time - only orient sessions created after this
 DAEMON_START_TIME_MS: int = int(time.time() * 1000)

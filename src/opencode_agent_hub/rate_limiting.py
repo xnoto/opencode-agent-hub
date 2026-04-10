@@ -61,14 +61,3 @@ def record_message_sent(agent_id: str) -> None:
         _agent_message_times[agent_id] = []
     _agent_message_times[agent_id].append(now)
     config.log.debug(f"Recorded message from {agent_id} at {now}")
-
-
-def get_agent_message_times(agent_id: str) -> list[float]:
-    """Get message timestamps for an agent (for testing)."""
-    return _agent_message_times.get(agent_id, [])
-
-
-def clear_agent_message_times(agent_id: str) -> None:
-    """Clear message timestamps for an agent (for testing)."""
-    if agent_id in _agent_message_times:
-        del _agent_message_times[agent_id]

@@ -88,12 +88,6 @@ class PrometheusMetrics:
         with self._lock:
             self._gauges[name] = value
 
-    def set_counter(self, name: str, value: int) -> None:
-        """Set a counter to an absolute value (use sparingly)."""
-        with self._lock:
-            if name in self._counters:
-                self._counters[name] = value
-
     def get(self, name: str) -> float:
         """Get current value of a metric."""
         with self._lock:

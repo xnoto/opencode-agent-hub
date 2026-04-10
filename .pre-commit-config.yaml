@@ -47,6 +47,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: vulture
+        name: vulture
+        entry: uv run --with vulture vulture src --min-confidence 80 --ignore-names on_any_event,on_created,on_modified,on_deleted,row_factory
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: pytest
         name: pytest
         entry: uv run pytest

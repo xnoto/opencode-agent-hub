@@ -35,7 +35,7 @@ def _capture_print(func: Any, *args: Any) -> str:
     output = []
     with mock.patch(
         "builtins.print",
-        side_effect=lambda *a, **kw: output.append(" ".join(str(x) for x in a)),
+        side_effect=lambda *a, **_kw: output.append(" ".join(str(x) for x in a)),
     ):
         func(*args)
     return "\n".join(output)

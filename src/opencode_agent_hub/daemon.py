@@ -98,7 +98,6 @@ from opencode_agent_hub.messaging import (
     SessionHandler,
     get_injection_queue,
     get_message_queue,
-    get_session_queue,
     injection_worker,
     message_worker,
     session_worker,
@@ -246,7 +245,7 @@ Examples:
     shutdown_event = threading.Event()
 
     # Handle signals for graceful shutdown
-    def shutdown_handler(signum: int, frame: Any) -> None:
+    def shutdown_handler(signum: int, _frame: Any) -> None:
         log.info(f"Received signal {signum}, shutting down...")
         shutdown_event.set()
         observer.stop()

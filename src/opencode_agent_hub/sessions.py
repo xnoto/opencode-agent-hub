@@ -5,20 +5,15 @@ for OpenCode sessions.
 """
 
 import hashlib
-import json
 import sqlite3
 import threading
 import time
-from pathlib import Path
 from typing import Any, cast
 
 from opencode_agent_hub.config import (
-    AGENTS_DIR,
     COORDINATOR_SESSION_ID,
     DAEMON_START_TIME_MS,
     OPENCODE_DB_PATH,
-    ORIENTATION_RETRY_DELAY,
-    ORIENTATION_RETRY_MAX,
     SESSION_CACHE_TTL,
     _sessions_cache,
     _sessions_cache_time,
@@ -26,10 +21,8 @@ from opencode_agent_hub.config import (
 )
 from opencode_agent_hub.metrics import metrics
 from opencode_agent_hub.persistence import (
-    atomic_write_json,
     is_agent_active,
     save_oriented_sessions,
-    save_session_agents,
 )
 
 # Session cache lock
@@ -256,79 +249,6 @@ def get_sessions() -> list[dict[str, Any]] | None:
         return sessions
 
 
-def invalidate_session_cache() -> None:
-    """Force cache refresh on next get_sessions() call."""
-    global _sessions_cache_time
-    with _sessions_cache_lock:
-        _sessions_cache_time = 0
-
-
-def load_opencode_session(path: Path) -> dict[str, Any] | None:
-    """Load an OpenCode session file."""
-    try:
-        return cast(dict[str, Any], json.loads(path.read_text()))
-    except (json.JSONDecodeError, OSError) as e:
-        log.warning(f"Failed to load session {path}: {e}")
-        return None
-
-
-def find_agent_for_directory(
-    directory: str, agents: dict[str, dict[str, Any]]
-) -> dict[str, Any] | None:
-    """Find registered agent matching a directory/projectPath."""
-    for agent in agents.values():
-        if agent.get("projectPath") == directory:
-            return agent
-    return None
-
-
-def get_or_create_agent_for_directory(
-    directory: str, agents: dict[str, dict[str, Any]]
-) -> dict[str, Any]:
-    """Find or auto-create an agent for a directory.
-
-    If no agent is registered for this directory, creates one automatically
-    based on the directory name.
-    """
-    # Check for existing agent
-    existing = find_agent_for_directory(directory, agents)
-    if existing:
-        return existing
-
-    # Auto-create agent from directory
-    dir_name = Path(directory).name or "root"
-    agent_id = dir_name.lower().replace(" ", "-").replace("_", "-")
-
-    # Handle conflicts by appending parent dir
-    if agent_id in agents:
-        parent = Path(directory).parent.name
-        agent_id = f"{parent}-{agent_id}".lower().replace(" ", "-")
-
-    agent = {
-        "id": agent_id,
-        "projectPath": directory,
-        "role": f"Auto-registered agent for {directory}",
-        "capabilities": [],
-        "collaboratesWith": [],
-        "lastSeen": int(time.time() * 1000),
-        "status": "active",
-        "autoCreated": True,
-    }
-
-    # Save to disk (atomic write to prevent readers seeing partial files)
-    agent_file = AGENTS_DIR / f"{agent_id}.json"
-    try:
-        atomic_write_json(agent_file, agent, indent=2)
-        agents[agent_id] = agent
-        metrics.inc("agent_hub_agents_auto_created_total")
-        metrics.set_gauge("agent_hub_active_agents", len(agents))
-        log.info(f"Auto-registered agent '{agent_id}' for {directory}")
-    except OSError as e:
-        log.error(f"Failed to save auto-created agent: {e}")
-
-    return agent
-
-
 def generate_agent_id_for_session(session: dict[str, Any]) -> str:
     """Generate a deterministic agent ID for a session.
 
@@ -435,86 +355,6 @@ def format_notification(msg: dict[str, Any], to_agent_id: str) -> str:
     ]
 
     return "\n".join(lines)
-
-
-def get_session_mapping(
-    session: dict[str, Any], agents: dict[str, dict[str, Any]]
-) -> dict[str, Any] | None:
-    """Find existing agent mapping for a session.
-
-    Returns the agent dict if an agent has registered for this session,
-    otherwise returns None. Agents register themselves via MCP, so we
-    just look up existing mappings here.
-    """
-    from opencode_agent_hub.config import SESSION_AGENTS
-
-    session_id = cast(str, session.get("id", ""))
-    directory = cast(str, session.get("directory", ""))
-
-    # Check if we already have a mapping for this session
-    if session_id in SESSION_AGENTS:
-        agent_id = SESSION_AGENTS[session_id]["agentId"]
-        if agent_id in agents:
-            return agents[agent_id]
-
-    # Check if any existing agent has this sessionId
-    for agent in agents.values():
-        if agent.get("sessionId") == session_id:
-            # Update our mapping
-            SESSION_AGENTS[session_id] = {
-                "agentId": agent["id"],
-                "directory": directory,
-            }
-            save_session_agents()
-            return agent
-
-    return None
-
-
-def map_session_to_agent(
-    session: dict[str, Any], agents: dict[str, dict[str, Any]]
-) -> dict[str, Any]:
-    """Map a session to an agent, creating the mapping if needed.
-
-    Agents are identified by their session ID and map 1:1 with sessions.
-    When an agent registers, we create the mapping. This function checks
-    for existing mappings and creates them when agents register.
-    """
-
-    session_id = cast(str, session.get("id", ""))
-    directory = cast(str, session.get("directory", ""))
-
-    # Check for existing mapping
-    existing = get_session_mapping(session, agents)
-    if existing:
-        return existing
-
-    # No mapping yet - this is expected until the agent registers itself
-    # Return a placeholder that indicates no agent has registered yet
-    return {
-        "id": None,  # No agent ID yet
-        "sessionId": session_id,
-        "projectPath": directory,
-        "role": "Waiting for agent to register via MCP",
-        "status": "pending",
-    }
-
-
-def save_session_agent_mapping(session_id: str, agent_id: str, directory: str) -> None:
-    """Save mapping between session and registered agent."""
-    from opencode_agent_hub.config import SESSION_AGENTS
-
-    SESSION_AGENTS[session_id] = {"agentId": agent_id, "directory": directory}
-    save_session_agents()
-
-
-def clear_session_agent_mapping(session_id: str) -> None:
-    """Clear mapping for a session when agent is removed."""
-    from opencode_agent_hub.config import SESSION_AGENTS
-
-    if session_id in SESSION_AGENTS:
-        del SESSION_AGENTS[session_id]
-        save_session_agents()
 
 
 def poll_active_sessions(
@@ -723,15 +563,15 @@ def orient_session(
     # Schedule verification callback
     import threading
 
-    def verify_callback():
-        _verify_session_processing(session_id, orientation)
+    def verify_callback() -> None:
+        _verify_session_processing(session_id)
 
     threading.Timer(5.0, verify_callback).start()
 
     return True
 
 
-def _verify_session_processing(session_id: str, orientation_text: str) -> None:
+def _verify_session_processing(session_id: str, _orientation_text: str | None = None) -> None:
     """Verify that a session is processing injected messages.
 
     This diagnostic function checks if the session has received and responded
@@ -739,7 +579,6 @@ def _verify_session_processing(session_id: str, orientation_text: str) -> None:
 
     Args:
         session_id: The session ID to check
-        orientation_text: The orientation message text that was injected
     """
     import requests
 
@@ -812,10 +651,7 @@ def _verify_session_processing(session_id: str, orientation_text: str) -> None:
     for msg in messages:
         # Handle time as either int or dict with 'start' key
         time_val = msg.get("info", {}).get("time", 0)
-        if isinstance(time_val, dict):
-            msg_time = time_val.get("start", 0)
-        else:
-            msg_time = time_val
+        msg_time = time_val.get("start", 0) if isinstance(time_val, dict) else time_val
         if msg_time > orientation_timestamp:
             role = msg.get("info", {}).get("role", "")
             if role == "assistant":
