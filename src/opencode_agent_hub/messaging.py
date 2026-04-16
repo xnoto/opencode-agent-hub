@@ -310,12 +310,13 @@ def injection_worker(shutdown_event: threading.Event) -> None:
         try:
             # Detect the session's active agent from its last assistant message,
             # then look up the corresponding model from the agent→model map
-            # built at startup. This ensures the daemon never overrides the
-            # session's model with the hub server's global default.
-            from opencode_agent_hub.config import AGENT_MODELS
+            # built at startup. Falls back to DEFAULT_AGENT for new sessions
+            # with no message history. This ensures the daemon never lets the
+            # hub server pick its own default model.
+            from opencode_agent_hub.config import AGENT_MODELS, DEFAULT_AGENT
 
-            session_agent = get_session_agent(task.session_id)
-            session_model = AGENT_MODELS.get(session_agent) if session_agent else None
+            session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
+            session_model = AGENT_MODELS.get(session_agent)
             success = inject_message_sync(task.session_id, task.text, model=session_model)
             if not success and task.original_sender:
                 # Injection failed after retries — notify the original sender

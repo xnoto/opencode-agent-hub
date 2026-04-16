@@ -528,7 +528,7 @@ def orient_session(
         ORIENTED_SESSIONS_LOCK,
     )
     from opencode_agent_hub.coordinator import session_has_blocking_permissions
-    from opencode_agent_hub.messaging import inject_context_sync
+    from opencode_agent_hub.messaging import inject_message
 
     if not session_id:
         log.warning("orient_session called with empty session_id")
@@ -579,10 +579,7 @@ def orient_session(
         log.debug(f"Orientation message: {orientation[:100]}...")
 
         try:
-            # Use /message (context-only) instead of /prompt_async to avoid
-            # forcing a model on the session. The user's next interaction
-            # will use whatever agent they chose in the TUI.
-            inject_context_sync(session_id, orientation)
+            inject_message(session_id, orientation)
             # Add to ORIENTED_SESSIONS only after successful injection
             ORIENTED_SESSIONS.add(session_id)
             save_oriented_sessions()
@@ -772,11 +769,11 @@ def check_orientation_retries(agents: dict[str, dict[str, Any]]) -> None:
 
         metrics.inc("agent_hub_orientation_retries_total")
 
-        # Re-inject orientation message (context-only, no model override)
+        # Re-inject orientation message
         try:
-            from opencode_agent_hub.messaging import inject_context_sync
+            from opencode_agent_hub.messaging import inject_message
 
             orientation = format_orientation(agents, agent_id=agent_id, project_path=project_path)
-            inject_context_sync(session_id, orientation)
+            inject_message(session_id, orientation)
         except Exception as e:
             log.error(f"Failed to retry orientation for {session_id[:8]}: {e}")

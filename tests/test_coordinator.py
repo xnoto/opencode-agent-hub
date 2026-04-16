@@ -406,7 +406,7 @@ def test_orient_session_skips_coordinator_by_session_id() -> None:
         # Mock save to avoid file I/O and inject_message
         with (
             mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
-            mock.patch("opencode_agent_hub.messaging.inject_context_sync") as mock_inject,
+            mock.patch("opencode_agent_hub.messaging.inject_message") as mock_inject,
         ):
             result = orient_session("ses_coordinator_123", "/some/path", all_agents)
 
@@ -433,7 +433,7 @@ def test_orient_session_does_not_skip_non_coordinator() -> None:
 
         with (
             mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
-            mock.patch("opencode_agent_hub.messaging.inject_context_sync") as mock_inject,
+            mock.patch("opencode_agent_hub.messaging.inject_message") as mock_inject,
             mock.patch("opencode_agent_hub.coordinator.notify_coordinator_new_agent"),
         ):
             result = orient_session("ses_worker_456", "/worker/path", all_agents)
@@ -462,7 +462,7 @@ def test_orient_session_no_coordinator_id_does_not_skip() -> None:
 
         with (
             mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
-            mock.patch("opencode_agent_hub.messaging.inject_context_sync") as mock_inject,
+            mock.patch("opencode_agent_hub.messaging.inject_message") as mock_inject,
             mock.patch("opencode_agent_hub.coordinator.notify_coordinator_new_agent"),
         ):
             result = orient_session("ses_any_session", "/some/path", all_agents)

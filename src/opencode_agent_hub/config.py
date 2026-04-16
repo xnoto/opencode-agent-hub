@@ -261,6 +261,17 @@ SESSION_CACHE_TTL = _get_config_value(
 )
 
 # =============================================================================
+# Agent/Model Configuration
+# =============================================================================
+
+# Default agent for injections when the session's agent can't be detected
+# (e.g. brand new sessions). Set via env var or config file.
+# Must match an agent name from `opencode debug agent` (e.g. "gpt", "minimax").
+DEFAULT_AGENT = _get_config_value(
+    "AGENT_HUB_DEFAULT_AGENT", ["agent", "default"], "gpt", _CONFIG, str
+)
+
+# =============================================================================
 # Orientation Configuration
 # =============================================================================
 
