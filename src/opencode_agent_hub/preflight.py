@@ -123,4 +123,27 @@ def check_agent_hub_mcp_configured() -> bool:
         )
 
     log.info("Preflight: agent-hub tools allowed in permissions")
+
+    # Build agent→model lookup from the resolved config.
+    # Each agent has a "model" field like "anthropic/claude-opus-4-6" which
+    # we parse into {"providerID": "anthropic", "modelID": "claude-opus-4-6"}.
+    from opencode_agent_hub.config import AGENT_MODELS
+
+    agents_config = config.get("agent", {})
+    for agent_name, agent_cfg in agents_config.items():
+        if not isinstance(agent_cfg, dict):
+            continue
+        if agent_cfg.get("disable"):
+            continue
+        model_str = agent_cfg.get("model", "")
+        if isinstance(model_str, str) and "/" in model_str:
+            provider_id, model_id = model_str.split("/", 1)
+            AGENT_MODELS[agent_name] = {
+                "providerID": provider_id,
+                "modelID": model_id,
+            }
+
+    if AGENT_MODELS:
+        log.info(f"Preflight: loaded {len(AGENT_MODELS)} agent models: {list(AGENT_MODELS.keys())}")
+
     return True

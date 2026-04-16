@@ -16,7 +16,7 @@ def test_start_coordinator_logs_model(tmp_path: Path) -> None:
     coord_dir.mkdir()
 
     opencode_json = coord_dir / "opencode.json"
-    opencode_config = {"model": "test-model-v1", "permission": []}
+    opencode_config = {"agent": "test-agent", "model": "test-provider/test-model-v1", "permission": []}
     opencode_json.write_text(json.dumps(opencode_config))
 
     # Track logged messages
@@ -33,6 +33,10 @@ def test_start_coordinator_logs_model(tmp_path: Path) -> None:
         mock.patch.object(config, "COORDINATOR_ENABLED", True),
         mock.patch.object(config, "AGENTS_DIR", tmp_path / "agents"),
         mock.patch.object(config, "ORIENTED_SESSIONS", set()),
+        mock.patch.object(
+            config, "AGENT_MODELS",
+            {"test-agent": {"providerID": "test-provider", "modelID": "test-model-v1"}},
+        ),
         mock.patch("opencode_agent_hub.coordinator.setup_coordinator_directory") as mock_setup,
         mock.patch("opencode_agent_hub.coordinator.kill_all_coordinator_sessions") as mock_kill,
         mock.patch("requests.post") as mock_post,
@@ -58,9 +62,12 @@ def test_start_coordinator_logs_model(tmp_path: Path) -> None:
         ):
             coordinator_module.start_coordinator()
 
-    # Verify model was logged (format: "Coordinator agent: ..., model: ...")
-    model_logged = any("model: test-model-v1" in msg for msg in logged_messages)
-    assert model_logged, f"Expected model log not found in: {logged_messages}"
+    # Verify the configured agent/model was logged (values come from opencode.json)
+    model_logged = any(
+        "Coordinator agent: test-agent" in msg and "test-provider" in msg
+        for msg in logged_messages
+    )
+    assert model_logged, f"Expected coordinator agent/model log not found in: {logged_messages}"
 
 
 def test_start_coordinator_handles_missing_opencode_json(tmp_path: Path) -> None:

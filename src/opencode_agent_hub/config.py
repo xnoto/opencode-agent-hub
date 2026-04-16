@@ -302,6 +302,10 @@ _sessions_cache_time: float = 0
 # Coordinator session ID
 COORDINATOR_SESSION_ID: str | None = None
 
+# Agent→model lookup: maps agent name to {"providerID": ..., "modelID": ...}.
+# Populated by preflight from the resolved OpenCode config.
+AGENT_MODELS: dict[str, dict[str, str]] = {}
+
 # Daemon start time - only orient sessions created after this
 DAEMON_START_TIME_MS: int = int(time.time() * 1000)
 

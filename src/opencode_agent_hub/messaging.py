@@ -188,13 +188,7 @@ def session_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> 
             _session_queue.task_done()
 
 
-def inject_message_sync(
-    session_id: str,
-    text: str,
-    *,
-    agent: str | None = None,
-    model: dict[str, str] | None = None,
-) -> bool:
+def inject_message_sync(session_id: str, text: str, *, model: dict[str, str] | None = None) -> bool:
     """Inject message into OpenCode session (synchronous, with retries).
 
     Uses /prompt_async endpoint which triggers LLM invocation even when idle.
@@ -202,16 +196,13 @@ def inject_message_sync(
     actually invoking the LLM when the session is idle.
 
     Args:
-        agent: Agent name (e.g. "claude", "gpt", "minimax") — determines model.
-        model: Explicit model override as {"providerID": "...", "modelID": "..."}.
-               Used only for coordinator bootstrap; agent takes precedence otherwise.
+        model: Model override as {"providerID": "...", "modelID": "..."}.
+               Resolved from AGENT_MODELS by the injection_worker.
     """
     payload: dict[str, Any] = {
         "parts": [{"type": "text", "text": text}],
     }
-    if agent:
-        payload["agent"] = agent
-    elif model:
+    if model:
         payload["model"] = model
 
     for attempt in range(INJECTION_RETRIES):
@@ -273,10 +264,15 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             continue
 
         try:
-            # Detect the session's active agent so we don't override it
-            # with the hub server's global default model.
+            # Detect the session's active agent from its last assistant message,
+            # then look up the corresponding model from the agent→model map
+            # built at startup. This ensures the daemon never overrides the
+            # session's model with the hub server's global default.
+            from opencode_agent_hub.config import AGENT_MODELS
+
             session_agent = get_session_agent(task.session_id)
-            success = inject_message_sync(task.session_id, task.text, agent=session_agent)
+            session_model = AGENT_MODELS.get(session_agent) if session_agent else None
+            success = inject_message_sync(task.session_id, task.text, model=session_model)
             if not success and task.original_sender:
                 # Injection failed after retries — notify the original sender
                 metrics.inc("agent_hub_messages_delivery_failed_total")

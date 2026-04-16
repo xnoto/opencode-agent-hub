@@ -505,12 +505,10 @@ def start_coordinator() -> bool:
 
     config.log.info("Starting coordinator session...")
 
-    # Read the coordinator's agent and model from opencode.json.
-    # The "agent" field (e.g. "minimax") is preferred — it maps to an
-    # OpenCode agent config with its own model binding. The "model" field
-    # (e.g. "opencode/minimax-m2.5-free") is a fallback for explicit
-    # provider/model override.
-    coordinator_agent: str | None = None
+    # Resolve the coordinator's model from opencode.json.
+    # First check for an "agent" field (e.g. "minimax") and look up its model
+    # in the AGENT_MODELS map built at preflight. Fall back to parsing the
+    # "model" field (e.g. "opencode/minimax-m2.5-free") directly.
     coordinator_model_override: dict[str, str] | None = None
     try:
         opencode_json_path = config.COORDINATOR_DIR / "opencode.json"
@@ -519,18 +517,25 @@ def start_coordinator() -> bool:
 
             with open(opencode_json_path) as f:
                 opencode_config = json.load(f)
-            coordinator_agent = opencode_config.get("agent")
+            agent_name = opencode_config.get("agent")
             model_str = opencode_config.get("model", "")
-            if not coordinator_agent and model_str and "/" in model_str:
+
+            # Prefer agent→model lookup (uses the same model the agent is configured with)
+            if agent_name and agent_name in config.AGENT_MODELS:
+                coordinator_model_override = config.AGENT_MODELS[agent_name]
+                config.log.info(
+                    f"Coordinator agent: {agent_name}, "
+                    f"model: {coordinator_model_override['providerID']}/{coordinator_model_override['modelID']}"
+                )
+            elif model_str and "/" in model_str:
                 provider_id, model_id = model_str.split("/", 1)
                 coordinator_model_override = {
                     "providerID": provider_id,
                     "modelID": model_id,
                 }
-            config.log.info(
-                f"Coordinator agent: {coordinator_agent or 'n/a'}, "
-                f"model: {model_str or 'default'}"
-            )
+                config.log.info(f"Coordinator model: {model_str}")
+            else:
+                config.log.info(f"Coordinator agent: {agent_name or 'n/a'}, model: default")
     except Exception as e:
         config.log.debug(f"Could not read coordinator config from opencode.json: {e}")
 
@@ -587,10 +592,7 @@ def start_coordinator() -> bool:
         ready_after_ms = int(time.time() * 1000)
 
         if not inject_message_sync(
-            session_id,
-            config.COORDINATOR_BOOTSTRAP_PROMPT,
-            agent=coordinator_agent,
-            model=coordinator_model_override,
+            session_id, config.COORDINATOR_BOOTSTRAP_PROMPT, model=coordinator_model_override
         ):
             config.log.error(
                 f"Failed to inject coordinator bootstrap prompt for session {session_id[:8]}"
