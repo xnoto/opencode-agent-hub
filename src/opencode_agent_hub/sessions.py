@@ -165,11 +165,13 @@ def _execute_session_query(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def get_session_agent(session_id: str) -> str | None:
-    """Detect a session's active agent from its most recent message.
+    """Detect a session's active agent from its most recent assistant message.
 
-    OpenCode stores the agent name (e.g. "claude", "gpt", "minimax") in the
-    message data JSON. The agent determines the model — passing it on
-    prompt_async ensures the daemon doesn't override the session's model.
+    OpenCode stores the agent name (e.g. "gpt", "minimax", "kimi") in the
+    message data JSON. We read the last **assistant** message specifically,
+    because user messages injected by the daemon carry the agent field from
+    the injection — not the session's actual agent. The assistant response
+    reflects which agent actually handled the session.
 
     Returns the agent name, or None if not detectable.
     """
@@ -183,6 +185,7 @@ def get_session_agent(session_id: str) -> str | None:
                 "SELECT json_extract(m.data, '$.agent') as agent"
                 "  FROM message m"
                 " WHERE m.session_id = ?"
+                "   AND json_extract(m.data, '$.role') = 'assistant'"
                 "   AND json_extract(m.data, '$.agent') IS NOT NULL"
                 " ORDER BY m.time_created DESC"
                 " LIMIT 1",

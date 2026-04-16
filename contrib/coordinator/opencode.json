@@ -1,5 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "agent": "minimax",
   "model": "opencode/minimax-m2.5-free",
   "permission": [
     {"permission": "agent-hub_*", "pattern": "*", "action": "allow"},

@@ -58,8 +58,8 @@ def test_start_coordinator_logs_model(tmp_path: Path) -> None:
         ):
             coordinator_module.start_coordinator()
 
-    # Verify model was logged
-    model_logged = any("Coordinator model: test-model-v1" in msg for msg in logged_messages)
+    # Verify model was logged (format: "Coordinator agent: ..., model: ...")
+    model_logged = any("model: test-model-v1" in msg for msg in logged_messages)
     assert model_logged, f"Expected model log not found in: {logged_messages}"
 
 

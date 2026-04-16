@@ -505,9 +505,12 @@ def start_coordinator() -> bool:
 
     config.log.info("Starting coordinator session...")
 
-    # Read the coordinator model from opencode.json and parse into the
-    # prompt_async model format: {"providerID": "...", "modelID": "..."}.
-    # Session creation ignores model; it must be set per-prompt.
+    # Read the coordinator's agent and model from opencode.json.
+    # The "agent" field (e.g. "minimax") is preferred — it maps to an
+    # OpenCode agent config with its own model binding. The "model" field
+    # (e.g. "opencode/minimax-m2.5-free") is a fallback for explicit
+    # provider/model override.
+    coordinator_agent: str | None = None
     coordinator_model_override: dict[str, str] | None = None
     try:
         opencode_json_path = config.COORDINATOR_DIR / "opencode.json"
@@ -516,16 +519,20 @@ def start_coordinator() -> bool:
 
             with open(opencode_json_path) as f:
                 opencode_config = json.load(f)
+            coordinator_agent = opencode_config.get("agent")
             model_str = opencode_config.get("model", "")
-            if model_str and "/" in model_str:
+            if not coordinator_agent and model_str and "/" in model_str:
                 provider_id, model_id = model_str.split("/", 1)
                 coordinator_model_override = {
                     "providerID": provider_id,
                     "modelID": model_id,
                 }
-            config.log.info(f"Coordinator model: {model_str or 'default'}")
+            config.log.info(
+                f"Coordinator agent: {coordinator_agent or 'n/a'}, "
+                f"model: {model_str or 'default'}"
+            )
     except Exception as e:
-        config.log.debug(f"Could not read coordinator model from opencode.json: {e}")
+        config.log.debug(f"Could not read coordinator config from opencode.json: {e}")
 
     # Create session via HTTP API.
     try:
@@ -580,7 +587,10 @@ def start_coordinator() -> bool:
         ready_after_ms = int(time.time() * 1000)
 
         if not inject_message_sync(
-            session_id, config.COORDINATOR_BOOTSTRAP_PROMPT, model=coordinator_model_override
+            session_id,
+            config.COORDINATOR_BOOTSTRAP_PROMPT,
+            agent=coordinator_agent,
+            model=coordinator_model_override,
         ):
             config.log.error(
                 f"Failed to inject coordinator bootstrap prompt for session {session_id[:8]}"
