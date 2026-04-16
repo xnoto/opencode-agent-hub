@@ -43,7 +43,7 @@ _session_queue: queue.Queue[SessionTask] = queue.Queue()
 
 
 _REQUIRED_FIELDS: dict[str, type] = {"from": str, "to": str, "content": str}
-_VALID_TYPES = {"message", "completion", "delivery-status"}
+_VALID_TYPES = {"message", "completion", "delivery-status", "task", "question", "context", "error"}
 _VALID_PRIORITIES = {"normal", "urgent"}
 
 
