@@ -206,13 +206,17 @@ Messages are JSON files in `~/.agent-hub/messages/`:
 {
   "from": "agent-id",
   "to": "target-agent-id",
-  "type": "task|question|context|completion|error",
+  "type": "message|completion|delivery-status",
   "content": "Message content",
-  "priority": "normal|urgent|high|low",
+  "priority": "normal|urgent",
   "threadId": "auto-generated-or-provided",
   "timestamp": 1234567890000
 }
 ```
+
+Required fields: `from`, `to`, `content`. The hub validates message schema on receipt and rejects malformed messages.
+
+**Delivery feedback**: When a message is delivered (or delivery fails), the hub sends a `delivery-status` message back to the original sender with the outcome.
 
 ## Directory Structure
 

@@ -95,6 +95,7 @@ Once agents are introduced:
 
 - Messages between other agents (not addressed to you)
 - "completion" type messages (work is done, no action needed)
+- "delivery-status" type messages (system notifications about message delivery outcomes)
 - Any message that doesn't require you to introduce agents
 
 ## Token Budget
