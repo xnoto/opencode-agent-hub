@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/xnoto/opencode-agent-hub/compare/v1.4.1...v1.4.2) (2026-04-16)
+
+
+### Bug Fixes
+
+* **daemon:** remove auto-registration, agents register via MCP with pseudorandom IDs ([#74](https://github.com/xnoto/opencode-agent-hub/issues/74)) ([6b2458f](https://github.com/xnoto/opencode-agent-hub/commit/6b2458fde903edc13f47af7756161c4b93a88281))
+
 ## [1.4.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.4.0...v1.4.1) (2026-04-01)
 
 
