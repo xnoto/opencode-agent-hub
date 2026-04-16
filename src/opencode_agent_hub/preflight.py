@@ -7,6 +7,7 @@ before the daemon starts.
 import json
 import shutil
 import subprocess
+import tempfile
 
 from opencode_agent_hub.config import log
 from opencode_agent_hub.models import PreflightError
@@ -49,25 +50,27 @@ def check_agent_hub_mcp_configured() -> bool:
     except (subprocess.TimeoutExpired, OSError):
         config_path = "your OpenCode config file (run 'opencode debug paths' to find it)"
 
+    # Write stdout to a temp file instead of piping to avoid the 64KB
+    # pipe buffer limit that truncates large resolved configs.
     try:
-        result = subprocess.run(
-            [opencode_bin, "debug", "config"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=True) as tmp:
+            result = subprocess.run(
+                [opencode_bin, "debug", "config"],
+                stdout=tmp,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise PreflightError(
+                    f"opencode debug config failed (exit {result.returncode}): {result.stderr}"
+                )
+            tmp.seek(0)
+            config = json.load(tmp)
     except subprocess.TimeoutExpired as e:
         raise PreflightError("Timed out getting OpenCode config") from e
     except OSError as e:
         raise PreflightError(f"Failed to run opencode: {e}") from e
-
-    if result.returncode != 0:
-        raise PreflightError(
-            f"opencode debug config failed (exit {result.returncode}): {result.stderr}"
-        )
-
-    try:
-        config = json.loads(result.stdout)
     except json.JSONDecodeError as e:
         raise PreflightError(f"Failed to parse OpenCode config: {e}") from e
 
