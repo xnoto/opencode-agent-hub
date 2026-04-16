@@ -317,6 +317,12 @@ def injection_worker(shutdown_event: threading.Event) -> None:
 
             session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
             session_model = AGENT_MODELS.get(session_agent)
+            log.debug(
+                f"Worker resolving model for {task.session_id[:8]}: "
+                f"detected_agent={get_session_agent(task.session_id)!r} "
+                f"default={DEFAULT_AGENT!r} resolved={session_agent!r} "
+                f"model={session_model} AGENT_MODELS_keys={list(AGENT_MODELS.keys())}"
+            )
             success = inject_message_sync(task.session_id, task.text, model=session_model)
             if not success and task.original_sender:
                 # Injection failed after retries — notify the original sender
