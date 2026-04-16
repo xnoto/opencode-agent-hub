@@ -165,15 +165,23 @@ def _execute_session_query(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def get_session_agent(session_id: str) -> str | None:
-    """Detect a session's active agent from its most recent assistant message.
+    """Detect a session's active agent from its first user message.
 
     OpenCode stores the agent name (e.g. "gpt", "minimax", "kimi") in the
-    message data JSON. We read the last **assistant** message specifically,
-    because user messages injected by the daemon carry the agent field from
-    the injection — not the session's actual agent. The assistant response
-    reflects which agent actually handled the session.
+    message data JSON.  We read the **first user message** (ordered by
+    time_created ASC) because:
 
-    Returns the agent name, or None if not detectable.
+    1. The hub server auto-creates assistant messages with agent='claude'
+       when a session is created — even if the user started the session
+       with ``opencode --agent gpt``.  Querying assistant messages would
+       return the wrong agent.
+
+    2. The user's very first message always carries the correct agent set
+       by the TUI (reflecting their ``--agent`` flag).  Daemon-injected
+       messages arrive later during orientation polling, so the earliest
+       user message is the real one.
+
+    Returns the agent name, or None if no user messages exist yet.
     """
     if not OPENCODE_DB_PATH.exists():
         return None
@@ -185,9 +193,9 @@ def get_session_agent(session_id: str) -> str | None:
                 "SELECT json_extract(m.data, '$.agent') as agent"
                 "  FROM message m"
                 " WHERE m.session_id = ?"
-                "   AND json_extract(m.data, '$.role') = 'assistant'"
+                "   AND json_extract(m.data, '$.role') = 'user'"
                 "   AND json_extract(m.data, '$.agent') IS NOT NULL"
-                " ORDER BY m.time_created DESC"
+                " ORDER BY m.time_created ASC"
                 " LIMIT 1",
                 (session_id,),
             ).fetchone()
@@ -569,10 +577,11 @@ def orient_session(
             save_oriented_sessions()
             return True
 
-        # Wait until the session has at least one user message with an agent set.
-        # This ensures we can detect which agent the session is using and pass
-        # the correct model override. Without this, the daemon would inject with
-        # the wrong model and hijack the session's agent.
+        # Wait until the session has at least one real user message.
+        # get_session_agent reads the FIRST user message's agent field,
+        # which reflects the TUI user's --agent flag (e.g. "gpt").
+        # Without this gate the daemon would inject before the user types
+        # anything, defaulting to claude and hijacking the session's agent.
         session_agent = get_session_agent(session_id)
         if not session_agent:
             log.debug(f"Session {session_id[:8]} has no agent yet, deferring orientation")

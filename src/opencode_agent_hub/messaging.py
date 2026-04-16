@@ -313,14 +313,25 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             # built at startup. Falls back to DEFAULT_AGENT for new sessions
             # with no message history. This ensures the daemon never lets the
             # hub server pick its own default model.
-            from opencode_agent_hub.config import AGENT_MODELS, DEFAULT_AGENT
+            from opencode_agent_hub.config import (
+                AGENT_MODELS,
+                COORDINATOR_MODEL,
+                COORDINATOR_SESSION_ID,
+                DEFAULT_AGENT,
+            )
 
-            session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
-            session_model = AGENT_MODELS.get(session_agent)
+            # For the coordinator session, use the model resolved at startup
+            # (from opencode.json). The coordinator has no TUI user, so
+            # get_session_agent would detect the hub server's default (claude).
+            if COORDINATOR_SESSION_ID and task.session_id == COORDINATOR_SESSION_ID and COORDINATOR_MODEL:
+                session_model = COORDINATOR_MODEL
+                session_agent = "coordinator"
+            else:
+                session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
+                session_model = AGENT_MODELS.get(session_agent)
             log.debug(
                 f"Worker resolving model for {task.session_id[:8]}: "
-                f"detected_agent={get_session_agent(task.session_id)!r} "
-                f"default={DEFAULT_AGENT!r} resolved={session_agent!r} "
+                f"resolved={session_agent!r} "
                 f"model={session_model} AGENT_MODELS_keys={list(AGENT_MODELS.keys())}"
             )
             success = inject_message_sync(task.session_id, task.text, model=session_model)

@@ -565,6 +565,7 @@ def start_coordinator() -> bool:
         config.log.info(f"Created coordinator session via API: {session_id[:8]}")
 
         config.COORDINATOR_SESSION_ID = session_id
+        config.COORDINATOR_MODEL = coordinator_model_override
         config.ORIENTED_SESSIONS.add(session_id)
 
         # Register coordinator as an agent so other agents can message it
@@ -600,6 +601,7 @@ def start_coordinator() -> bool:
             with suppress(requests.RequestException):
                 requests.delete(f"{config.OPENCODE_URL}/session/{session_id}", timeout=5)
             config.COORDINATOR_SESSION_ID = None
+            config.COORDINATOR_MODEL = None
             config.ORIENTED_SESSIONS.discard(session_id)
             if agent_file.exists():
                 agent_file.unlink()
@@ -622,6 +624,7 @@ def start_coordinator() -> bool:
                 with suppress(requests.RequestException):
                     requests.delete(f"{config.OPENCODE_URL}/session/{session_id}", timeout=5)
                 config.COORDINATOR_SESSION_ID = None
+                config.COORDINATOR_MODEL = None
                 config.ORIENTED_SESSIONS.discard(session_id)
                 if agent_file.exists():
                     agent_file.unlink()
@@ -656,6 +659,7 @@ def stop_coordinator() -> None:
         except Exception as e:
             config.log.warning(f"Failed to kill coordinator session: {e}")
         config.COORDINATOR_SESSION_ID = None
+        config.COORDINATOR_MODEL = None
 
         # Clean up coordinator agent file
         try:
