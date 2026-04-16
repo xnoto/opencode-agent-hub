@@ -59,15 +59,21 @@ def validate_message(msg: dict[str, Any]) -> tuple[bool, list[str]]:
         if value is None or (isinstance(value, str) and not value.strip()):
             errors.append(f"Missing or empty required field: '{field}'")
         elif not isinstance(value, expected_type):
-            errors.append(f"Field '{field}' must be {expected_type.__name__}, got {type(value).__name__}")
+            errors.append(
+                f"Field '{field}' must be {expected_type.__name__}, got {type(value).__name__}"
+            )
 
     msg_type = msg.get("type")
     if msg_type is not None and msg_type not in _VALID_TYPES:
-        errors.append(f"Invalid type '{msg_type}', must be one of: {', '.join(sorted(_VALID_TYPES))}")
+        errors.append(
+            f"Invalid type '{msg_type}', must be one of: {', '.join(sorted(_VALID_TYPES))}"
+        )
 
     priority = msg.get("priority")
     if priority is not None and priority not in _VALID_PRIORITIES:
-        errors.append(f"Invalid priority '{priority}', must be one of: {', '.join(sorted(_VALID_PRIORITIES))}")
+        errors.append(
+            f"Invalid priority '{priority}', must be one of: {', '.join(sorted(_VALID_PRIORITIES))}"
+        )
 
     return (len(errors) == 0, errors)
 
@@ -226,13 +232,16 @@ def inject_message(
     target_agent: str | None = None,
 ) -> None:
     """Queue message for async injection (non-blocking)."""
-    _injection_queue.put(InjectionTask(
-        session_id=session_id, text=text,
-        original_sender=original_sender,
-        original_message_id=original_message_id,
-        thread_id=thread_id,
-        target_agent=target_agent,
-    ))
+    _injection_queue.put(
+        InjectionTask(
+            session_id=session_id,
+            text=text,
+            original_sender=original_sender,
+            original_message_id=original_message_id,
+            thread_id=thread_id,
+            target_agent=target_agent,
+        )
+    )
 
 
 def injection_worker(shutdown_event: threading.Event) -> None:
@@ -249,7 +258,8 @@ def injection_worker(shutdown_event: threading.Event) -> None:
                 # Injection failed after retries — notify the original sender
                 metrics.inc("agent_hub_messages_delivery_failed_total")
                 _send_delivery_feedback(
-                    to=task.original_sender, status="failed",
+                    to=task.original_sender,
+                    status="failed",
                     original_message_id=task.original_message_id,
                     thread_id=task.thread_id,
                     reason="injection_failed",
@@ -317,8 +327,11 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         # Only send feedback if we have a usable sender address
         if sender != "unknown":
             _send_delivery_feedback(
-                to=sender, status="failed", original_message_id=msg_id,
-                reason="validation_error", errors=validation_errors,
+                to=sender,
+                status="failed",
+                original_message_id=msg_id,
+                reason="validation_error",
+                errors=validation_errors,
             )
         return
 
@@ -335,8 +348,11 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         dest = ARCHIVE_DIR / path.name
         path.rename(dest)
         _send_delivery_feedback(
-            to=sender, status="failed", original_message_id=msg_id,
-            thread_id=msg.get("threadId"), reason="rate_limited",
+            to=sender,
+            status="failed",
+            original_message_id=msg_id,
+            thread_id=msg.get("threadId"),
+            reason="rate_limited",
             errors=[cast(str, reason)],
         )
         return
@@ -363,8 +379,11 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         metrics.inc("agent_hub_messages_failed_total")
         metrics.inc("agent_hub_messages_routing_failed_total")
         _send_delivery_feedback(
-            to=sender, status="failed", original_message_id=msg_id,
-            thread_id=msg.get("threadId"), reason="unknown_agent",
+            to=sender,
+            status="failed",
+            original_message_id=msg_id,
+            thread_id=msg.get("threadId"),
+            reason="unknown_agent",
             errors=[f"No registered agent with id '{to}'"],
         )
         return
@@ -377,8 +396,11 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     if not all_sessions:
         log.info("No active sessions for message delivery")
         _send_delivery_feedback(
-            to=sender, status="failed", original_message_id=msg_id,
-            thread_id=msg.get("threadId"), reason="no_sessions",
+            to=sender,
+            status="failed",
+            original_message_id=msg_id,
+            thread_id=msg.get("threadId"),
+            reason="no_sessions",
             errors=["No active sessions available for delivery"],
         )
         return
@@ -413,7 +435,8 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
             for session in matching_sessions:
                 log.info(f"Injecting message into session {session['id']} for agent {agent['id']}")
                 inject_message(
-                    cast(str, session["id"]), notification,
+                    cast(str, session["id"]),
+                    notification,
                     original_sender=sender,
                     original_message_id=msg_id,
                     thread_id=msg.get("threadId"),
@@ -435,15 +458,21 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
             log.warning(f"Marked message as read failed: {e}")
         metrics.inc("agent_hub_messages_total")
         _send_delivery_feedback(
-            to=sender, status="delivered", original_message_id=msg_id,
-            thread_id=msg.get("threadId"), delivered_to=delivered_to,
+            to=sender,
+            status="delivered",
+            original_message_id=msg_id,
+            thread_id=msg.get("threadId"),
+            delivered_to=delivered_to,
         )
     else:
         metrics.inc("agent_hub_messages_failed_total")
         metrics.inc("agent_hub_messages_delivery_failed_total")
         _send_delivery_feedback(
-            to=sender, status="failed", original_message_id=msg_id,
-            thread_id=msg.get("threadId"), reason="no_sessions_for_agents",
+            to=sender,
+            status="failed",
+            original_message_id=msg_id,
+            thread_id=msg.get("threadId"),
+            reason="no_sessions_for_agents",
             errors=[f"No active session for agent(s): {', '.join(undeliverable)}"],
         )
 
