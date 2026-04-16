@@ -505,8 +505,10 @@ def start_coordinator() -> bool:
 
     config.log.info("Starting coordinator session...")
 
-    # Read the coordinator model from opencode.json
-    coordinator_model = None
+    # Read the coordinator model from opencode.json and parse into the
+    # prompt_async model format: {"providerID": "...", "modelID": "..."}.
+    # Session creation ignores model; it must be set per-prompt.
+    coordinator_model_override: dict[str, str] | None = None
     try:
         opencode_json_path = config.COORDINATOR_DIR / "opencode.json"
         if opencode_json_path.exists():
@@ -514,25 +516,26 @@ def start_coordinator() -> bool:
 
             with open(opencode_json_path) as f:
                 opencode_config = json.load(f)
-            coordinator_model = opencode_config.get("model")
-            config.log.info(f"Coordinator model: {coordinator_model or 'default'}")
+            model_str = opencode_config.get("model", "")
+            if model_str and "/" in model_str:
+                provider_id, model_id = model_str.split("/", 1)
+                coordinator_model_override = {
+                    "providerID": provider_id,
+                    "modelID": model_id,
+                }
+            config.log.info(f"Coordinator model: {model_str or 'default'}")
     except Exception as e:
         config.log.debug(f"Could not read coordinator model from opencode.json: {e}")
 
-    # Create session via HTTP API, passing the model explicitly.
-    # OpenCode's hub server does not load per-directory opencode.json
-    # for API-created sessions, so the model must be set in the request.
+    # Create session via HTTP API.
     try:
         coordinator_title = config._get_coordinator_title()
-        session_body: dict[str, Any] = {
-            "title": coordinator_title,
-            "directory": str(config.COORDINATOR_DIR),
-        }
-        if coordinator_model:
-            session_body["model"] = coordinator_model
         resp = requests.post(
             f"{config.OPENCODE_URL}/session",
-            json=session_body,
+            json={
+                "title": coordinator_title,
+                "directory": str(config.COORDINATOR_DIR),
+            },
             timeout=10,
         )
         if resp.status_code != 200:
@@ -576,7 +579,9 @@ def start_coordinator() -> bool:
         # Send bootstrap prompt synchronously before waiting for READY.
         ready_after_ms = int(time.time() * 1000)
 
-        if not inject_message_sync(session_id, config.COORDINATOR_BOOTSTRAP_PROMPT):
+        if not inject_message_sync(
+            session_id, config.COORDINATOR_BOOTSTRAP_PROMPT, model=coordinator_model_override
+        ):
             config.log.error(
                 f"Failed to inject coordinator bootstrap prompt for session {session_id[:8]}"
             )

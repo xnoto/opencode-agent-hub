@@ -183,16 +183,21 @@ def session_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> 
             _session_queue.task_done()
 
 
-def inject_message_sync(session_id: str, text: str) -> bool:
+def inject_message_sync(session_id: str, text: str, *, model: dict[str, str] | None = None) -> bool:
     """Inject message into OpenCode session (synchronous, with retries).
 
     Uses /prompt_async endpoint which triggers LLM invocation even when idle.
     The /message endpoint with noReply:false only adds to context without
     actually invoking the LLM when the session is idle.
+
+    Args:
+        model: Optional model override as {"providerID": "...", "modelID": "..."}.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "parts": [{"type": "text", "text": text}],
     }
+    if model:
+        payload["model"] = model
 
     for attempt in range(INJECTION_RETRIES):
         try:
