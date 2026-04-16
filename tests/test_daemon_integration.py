@@ -84,7 +84,7 @@ def test_daemon_orients_new_session_once(test_db: Path, tmp_path: Path):
     }
 
     with (
-        mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
+        mock.patch("opencode_agent_hub.messaging.inject_context_sync", side_effect=mock_inject),
         mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):
@@ -134,7 +134,7 @@ def test_orient_session_skips_already_oriented():
     }
 
     with (
-        mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
+        mock.patch("opencode_agent_hub.messaging.inject_context_sync", side_effect=mock_inject),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):
         # Call orient_session for an already-oriented session
@@ -170,7 +170,7 @@ def test_orient_session_thread_safe():
     agents = {}
 
     with (
-        mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
+        mock.patch("opencode_agent_hub.messaging.inject_context_sync", side_effect=mock_inject),
         mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):
@@ -252,7 +252,7 @@ def test_orient_session_idempotent():
     }
 
     with (
-        mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
+        mock.patch("opencode_agent_hub.messaging.inject_context_sync", side_effect=mock_inject),
         mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):

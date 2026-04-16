@@ -188,6 +188,47 @@ def session_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> 
             _session_queue.task_done()
 
 
+def inject_context_sync(session_id: str, text: str) -> bool:
+    """Add a message to a session's context without triggering LLM invocation.
+
+    Uses /message endpoint which adds to context only. This is used for
+    orientation messages where we don't want to force a model or wake the
+    session — the user's next interaction will use whatever agent they chose.
+    """
+    payload = {
+        "parts": [{"type": "text", "text": text}],
+    }
+
+    for attempt in range(INJECTION_RETRIES):
+        try:
+            resp = requests.post(
+                f"{OPENCODE_URL}/session/{session_id}/message",
+                json=payload,
+                timeout=INJECTION_TIMEOUT,
+            )
+            if resp.status_code in (200, 204):
+                log.info(f"Added context to session {session_id[:8]}... (/message)")
+                metrics.inc("agent_hub_injections_total")
+                return True
+            else:
+                body = resp.text[:200] if resp.text else "(empty)"
+                log.warning(
+                    f"Context injection attempt {attempt + 1} failed: {resp.status_code} {body}"
+                )
+        except requests.RequestException as e:
+            log.warning(f"Context injection attempt {attempt + 1} failed: {e}")
+
+        if attempt < INJECTION_RETRIES - 1:
+            metrics.inc("agent_hub_injections_retried_total")
+            time.sleep(0.5 * (attempt + 1))
+
+    log.error(
+        f"Context injection failed after {INJECTION_RETRIES} attempts for session {session_id[:8]}"
+    )
+    metrics.inc("agent_hub_injections_failed_total")
+    return False
+
+
 def inject_message_sync(session_id: str, text: str, *, model: dict[str, str] | None = None) -> bool:
     """Inject message into OpenCode session (synchronous, with retries).
 
@@ -223,9 +264,7 @@ def inject_message_sync(session_id: str, text: str, *, model: dict[str, str] | N
                 return True
             else:
                 body = resp.text[:200] if resp.text else "(empty)"
-                log.warning(
-                    f"Injection attempt {attempt + 1} failed: {resp.status_code} {body}"
-                )
+                log.warning(f"Injection attempt {attempt + 1} failed: {resp.status_code} {body}")
         except requests.RequestException as e:
             log.warning(f"Injection attempt {attempt + 1} failed: {e}")
 
