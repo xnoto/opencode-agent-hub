@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/xnoto/opencode-agent-hub/compare/v1.4.2...v1.4.3) (2026-04-16)
+
+
+### Documentation
+
+* update documentation for messaging reliability features ([#79](https://github.com/xnoto/opencode-agent-hub/issues/79)) ([5c7addf](https://github.com/xnoto/opencode-agent-hub/commit/5c7addf53fd1c7d74b8fcff07819b9f2c055a205))
+
 ## [1.4.2](https://github.com/xnoto/opencode-agent-hub/compare/v1.4.1...v1.4.2) (2026-04-16)
 
 
