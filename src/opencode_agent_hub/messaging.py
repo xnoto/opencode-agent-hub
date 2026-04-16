@@ -29,7 +29,12 @@ from opencode_agent_hub.metrics import metrics
 from opencode_agent_hub.models import InjectionTask, MessageTask, SessionTask
 from opencode_agent_hub.persistence import check_thread_resolution, ensure_thread_id, load_agents
 from opencode_agent_hub.rate_limiting import check_rate_limit, record_message_sent
-from opencode_agent_hub.sessions import find_sessions_for_agent, format_notification, get_sessions
+from opencode_agent_hub.sessions import (
+    find_sessions_for_agent,
+    format_notification,
+    get_session_model,
+    get_sessions,
+)
 from opencode_agent_hub.utils import atomic_write_json, validate_path_within_dir
 
 # Sender ID used for hub-originated feedback messages.
@@ -258,7 +263,10 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             continue
 
         try:
-            success = inject_message_sync(task.session_id, task.text)
+            # Detect the session's active model so we don't override it
+            # with the hub server's global default.
+            session_model = get_session_model(task.session_id)
+            success = inject_message_sync(task.session_id, task.text, model=session_model)
             if not success and task.original_sender:
                 # Injection failed after retries — notify the original sender
                 metrics.inc("agent_hub_messages_delivery_failed_total")

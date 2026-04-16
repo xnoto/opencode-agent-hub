@@ -164,6 +164,45 @@ def _execute_session_query(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_session_model(session_id: str) -> dict[str, str] | None:
+    """Detect a session's active model from its most recent user message.
+
+    OpenCode stores the model as {"providerID": "...", "modelID": "..."} in
+    the message data JSON. We query the most recent user message that has a
+    model set to determine what model the session is currently using.
+
+    Returns the model dict, or None if not detectable.
+    """
+    if not OPENCODE_DB_PATH.exists():
+        return None
+
+    try:
+        conn = sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT json_extract(m.data, '$.model') as model"
+                "  FROM message m"
+                " WHERE m.session_id = ?"
+                "   AND json_extract(m.data, '$.role') = 'user'"
+                "   AND json_extract(m.data, '$.model.providerID') IS NOT NULL"
+                " ORDER BY m.time_created DESC"
+                " LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            if row and row[0]:
+                import json
+
+                model = json.loads(row[0])
+                if isinstance(model, dict) and "providerID" in model and "modelID" in model:
+                    return {"providerID": model["providerID"], "modelID": model["modelID"]}
+        finally:
+            conn.close()
+    except (sqlite3.OperationalError, Exception) as e:
+        log.debug(f"Failed to detect model for session {session_id[:8]}: {e}")
+
+    return None
+
+
 def get_sessions_from_db() -> list[dict[str, Any]] | None:
     """Fetch sessions directly from OpenCode's SQLite database.
 
