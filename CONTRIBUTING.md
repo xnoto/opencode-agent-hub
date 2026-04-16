@@ -388,6 +388,12 @@ def test_orientation_retry_fires_after_delay_elapsed():
 - [ ] Thread creation and resolution
 - [ ] Garbage collection integration
 
+#### Phase 2b: Messaging Reliability
+- [ ] Message schema validation (required fields: `from`, `to`, `content`; valid types and priorities)
+- [ ] Delivery-status feedback generation (success and failure paths)
+- [ ] Classified failure metrics (`validation_failed`, `routing_failed`, `delivery_failed`, `rate_limited`)
+- [ ] Thread resolution locking (concurrent resolution race prevention)
+
 #### Phase 3: Edge Cases
 - [ ] Error handling for corrupted agent files (persistence.py)
 - [ ] Session discovery with locked/missing SQLite DB (sessions.py)
