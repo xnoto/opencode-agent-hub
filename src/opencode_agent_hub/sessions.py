@@ -164,14 +164,14 @@ def _execute_session_query(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def get_session_model(session_id: str) -> dict[str, str] | None:
-    """Detect a session's active model from its most recent user message.
+def get_session_agent(session_id: str) -> str | None:
+    """Detect a session's active agent from its most recent message.
 
-    OpenCode stores the model as {"providerID": "...", "modelID": "..."} in
-    the message data JSON. We query the most recent user message that has a
-    model set to determine what model the session is currently using.
+    OpenCode stores the agent name (e.g. "claude", "gpt", "minimax") in the
+    message data JSON. The agent determines the model — passing it on
+    prompt_async ensures the daemon doesn't override the session's model.
 
-    Returns the model dict, or None if not detectable.
+    Returns the agent name, or None if not detectable.
     """
     if not OPENCODE_DB_PATH.exists():
         return None
@@ -180,25 +180,20 @@ def get_session_model(session_id: str) -> dict[str, str] | None:
         conn = sqlite3.connect(f"file:{OPENCODE_DB_PATH}?mode=ro", uri=True)
         try:
             row = conn.execute(
-                "SELECT json_extract(m.data, '$.model') as model"
+                "SELECT json_extract(m.data, '$.agent') as agent"
                 "  FROM message m"
                 " WHERE m.session_id = ?"
-                "   AND json_extract(m.data, '$.role') = 'user'"
-                "   AND json_extract(m.data, '$.model.providerID') IS NOT NULL"
+                "   AND json_extract(m.data, '$.agent') IS NOT NULL"
                 " ORDER BY m.time_created DESC"
                 " LIMIT 1",
                 (session_id,),
             ).fetchone()
             if row and row[0]:
-                import json
-
-                model = json.loads(row[0])
-                if isinstance(model, dict) and "providerID" in model and "modelID" in model:
-                    return {"providerID": model["providerID"], "modelID": model["modelID"]}
+                return cast(str, row[0])
         finally:
             conn.close()
     except (sqlite3.OperationalError, Exception) as e:
-        log.debug(f"Failed to detect model for session {session_id[:8]}: {e}")
+        log.debug(f"Failed to detect agent for session {session_id[:8]}: {e}")
 
     return None
 
