@@ -7,7 +7,7 @@ name = "opencode-agent-hub"
 version = "1.4.2"
 description = "Multi-agent coordination daemon and tools for OpenCode"
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-only"
 requires-python = ">=3.11"
 authors = [
     { name = "xnoto" },
@@ -24,7 +24,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
