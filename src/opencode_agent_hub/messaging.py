@@ -205,6 +205,8 @@ def inject_message_sync(session_id: str, text: str, *, model: dict[str, str] | N
     if model:
         payload["model"] = model
 
+    log.debug(f"Injection payload for {session_id[:8]}: model={model}")
+
     for attempt in range(INJECTION_RETRIES):
         try:
             # Use prompt_async to actually trigger LLM invocation
@@ -220,7 +222,10 @@ def inject_message_sync(session_id: str, text: str, *, model: dict[str, str] | N
                 metrics.inc("agent_hub_injections_total")
                 return True
             else:
-                log.warning(f"Injection attempt {attempt + 1} failed: {resp.status_code}")
+                body = resp.text[:200] if resp.text else "(empty)"
+                log.warning(
+                    f"Injection attempt {attempt + 1} failed: {resp.status_code} {body}"
+                )
         except requests.RequestException as e:
             log.warning(f"Injection attempt {attempt + 1} failed: {e}")
 

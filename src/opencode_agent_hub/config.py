@@ -306,6 +306,12 @@ COORDINATOR_SESSION_ID: str | None = None
 # Populated by preflight from the resolved OpenCode config.
 AGENT_MODELS: dict[str, dict[str, str]] = {}
 
+# Default model used for injections when the session's agent can't be detected
+# (e.g. brand new sessions with no assistant messages). Populated by preflight
+# from the first non-disabled agent in the OpenCode config, or overridden via
+# AGENT_HUB_DEFAULT_AGENT env var.
+DEFAULT_INJECTION_MODEL: dict[str, str] | None = None
+
 # Daemon start time - only orient sessions created after this
 DAEMON_START_TIME_MS: int = int(time.time() * 1000)
 
