@@ -33,6 +33,7 @@ def test_orient_session_tracks_oriented() -> None:
 
         with (
             mock.patch("opencode_agent_hub.messaging.inject_message"),
+            mock.patch("opencode_agent_hub.sessions.get_session_agent", return_value="gpt"),
             mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
             mock.patch.object(config, "COORDINATOR_SESSION_ID", None),
         ):

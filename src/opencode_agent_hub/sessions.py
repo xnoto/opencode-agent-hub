@@ -569,6 +569,15 @@ def orient_session(
             save_oriented_sessions()
             return True
 
+        # Wait until the session has at least one user message with an agent set.
+        # This ensures we can detect which agent the session is using and pass
+        # the correct model override. Without this, the daemon would inject with
+        # the wrong model and hijack the session's agent.
+        session_agent = get_session_agent(session_id)
+        if not session_agent:
+            log.debug(f"Session {session_id[:8]} has no agent yet, deferring orientation")
+            return False
+
         # Generate deterministic agent ID for this session
         session_for_id = session if session else {"id": session_id}
         agent_id = generate_agent_id_for_session(session_for_id)

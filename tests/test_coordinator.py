@@ -433,6 +433,7 @@ def test_orient_session_does_not_skip_non_coordinator() -> None:
 
         with (
             mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
+            mock.patch("opencode_agent_hub.sessions.get_session_agent", return_value="gpt"),
             mock.patch("opencode_agent_hub.messaging.inject_message") as mock_inject,
             mock.patch("opencode_agent_hub.coordinator.notify_coordinator_new_agent"),
         ):
@@ -462,6 +463,7 @@ def test_orient_session_no_coordinator_id_does_not_skip() -> None:
 
         with (
             mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
+            mock.patch("opencode_agent_hub.sessions.get_session_agent", return_value="gpt"),
             mock.patch("opencode_agent_hub.messaging.inject_message") as mock_inject,
             mock.patch("opencode_agent_hub.coordinator.notify_coordinator_new_agent"),
         ):
