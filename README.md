@@ -253,4 +253,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for integration testing and architecture 
 
 ## License
 
-MIT - See [LICENSE](LICENSE) for details.
+AGPL-3.0 - See [LICENSE](LICENSE) for details.

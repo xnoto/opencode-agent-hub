@@ -505,7 +505,8 @@ def start_coordinator() -> bool:
 
     config.log.info("Starting coordinator session...")
 
-    # Read and log the coordinator model from opencode.json
+    # Read the coordinator model from opencode.json
+    coordinator_model = None
     try:
         opencode_json_path = config.COORDINATOR_DIR / "opencode.json"
         if opencode_json_path.exists():
@@ -513,22 +514,25 @@ def start_coordinator() -> bool:
 
             with open(opencode_json_path) as f:
                 opencode_config = json.load(f)
-            model = opencode_config.get("model", "default")
-            config.log.info(f"Coordinator model: {model}")
+            coordinator_model = opencode_config.get("model")
+            config.log.info(f"Coordinator model: {coordinator_model or 'default'}")
     except Exception as e:
         config.log.debug(f"Could not read coordinator model from opencode.json: {e}")
 
-    # Create session via HTTP API instead of CLI to inherit global permissions
+    # Create session via HTTP API, passing the model explicitly.
+    # OpenCode's hub server does not load per-directory opencode.json
+    # for API-created sessions, so the model must be set in the request.
     try:
         coordinator_title = config._get_coordinator_title()
-        # Note: Model is set in coordinator's opencode.json, not via API
-        # The API model parameter is not always respected by OpenCode
+        session_body: dict[str, Any] = {
+            "title": coordinator_title,
+            "directory": str(config.COORDINATOR_DIR),
+        }
+        if coordinator_model:
+            session_body["model"] = coordinator_model
         resp = requests.post(
             f"{config.OPENCODE_URL}/session",
-            json={
-                "title": coordinator_title,
-                "directory": str(config.COORDINATOR_DIR),
-            },
+            json=session_body,
             timeout=10,
         )
         if resp.status_code != 200:
