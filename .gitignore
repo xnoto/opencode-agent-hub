@@ -47,7 +47,9 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
+# pytest snapshot testing directories
 .pytest_cache/
+pytest-of-user/
 
 # Translations
 *.mo

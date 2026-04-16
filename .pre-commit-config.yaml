@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.15.9
     hooks:
       - id: ruff
         args: [--fix]
@@ -33,13 +33,13 @@ repos:
         args: [--ignore-missing-imports]
 
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.8.3
+    rev: 1.9.4
     hooks:
       - id: bandit
         args: ["-x", "tests"]
 
   - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v3.6.0
+    rev: v4.4.0
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
@@ -47,6 +47,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: vulture
+        name: vulture
+        entry: uv run --with vulture vulture src --min-confidence 80 --ignore-names on_any_event,on_created,on_modified,on_deleted,row_factory
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: pytest
         name: pytest
         entry: uv run pytest

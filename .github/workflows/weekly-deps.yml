@@ -1,0 +1,42 @@
+name: Weekly Dependency Update
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Update lock file
+        run: uv lock --upgrade
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore(deps): update uv.lock'
+          title: 'chore(deps): Weekly dependency update'
+          body: |
+            Automated dependency update via `uv lock --upgrade`.
+
+            Changes:
+            - Updates all dependencies to latest compatible versions
+            - Includes security patches if available
+          branch: 'chore/weekly-deps-update'
+          delete-branch: true
+          add-paths: |
+            uv.lock
