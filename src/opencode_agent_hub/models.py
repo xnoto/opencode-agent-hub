@@ -14,6 +14,11 @@ class InjectionTask:
 
     session_id: str
     text: str
+    # Optional metadata for delivery feedback on failure
+    original_sender: str | None = None
+    original_message_id: str | None = None
+    thread_id: str | None = None
+    target_agent: str | None = None
 
 
 @dataclass

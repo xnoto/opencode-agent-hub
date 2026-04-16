@@ -6,6 +6,7 @@ threads, sessions, and oriented sessions.
 
 import json
 import shutil
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, cast
@@ -24,6 +25,9 @@ from opencode_agent_hub.config import (
     log,
 )
 from opencode_agent_hub.utils import atomic_write_json, validate_path_within_dir
+
+# Prevents concurrent thread resolution races (two agents resolving the same thread)
+_thread_resolution_lock = threading.Lock()
 
 
 def load_oriented_sessions() -> set[str]:
@@ -202,21 +206,31 @@ def update_thread_participants(thread: dict[str, Any], msg: dict[str, Any]) -> N
 
 
 def resolve_thread(thread_id: str, resolved_by: str) -> None:
-    """Mark a thread as resolved and archive its messages."""
+    """Mark a thread as resolved and archive its messages.
+
+    Uses a lock to prevent concurrent resolution of the same thread
+    (e.g., two agents sending completion messages simultaneously).
+    """
     import time
 
-    thread = load_thread(thread_id)
-    if not thread:
-        return
+    with _thread_resolution_lock:
+        thread = load_thread(thread_id)
+        if not thread:
+            return
 
-    thread["status"] = "resolved"
-    thread["resolvedBy"] = resolved_by
-    thread["resolvedAt"] = int(time.time() * 1000)
-    save_thread(thread)
+        # Skip if already resolved (concurrent resolution race)
+        if thread.get("status") == "resolved":
+            log.debug(f"Thread {thread_id} already resolved, skipping")
+            return
 
-    # Archive all messages in this thread
-    archive_thread_messages(thread_id)
-    log.info(f"Thread {thread_id} resolved by {resolved_by}")
+        thread["status"] = "resolved"
+        thread["resolvedBy"] = resolved_by
+        thread["resolvedAt"] = int(time.time() * 1000)
+        save_thread(thread)
+
+        # Archive all messages in this thread
+        archive_thread_messages(thread_id)
+        log.info(f"Thread {thread_id} resolved by {resolved_by}")
 
 
 def archive_thread_messages(thread_id: str) -> None:

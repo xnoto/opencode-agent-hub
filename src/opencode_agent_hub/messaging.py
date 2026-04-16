@@ -8,6 +8,7 @@ import json
 import queue
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,12 +30,89 @@ from opencode_agent_hub.models import InjectionTask, MessageTask, SessionTask
 from opencode_agent_hub.persistence import check_thread_resolution, ensure_thread_id, load_agents
 from opencode_agent_hub.rate_limiting import check_rate_limit, record_message_sent
 from opencode_agent_hub.sessions import find_sessions_for_agent, format_notification, get_sessions
-from opencode_agent_hub.utils import validate_path_within_dir
+from opencode_agent_hub.utils import atomic_write_json, validate_path_within_dir
+
+# Sender ID used for hub-originated feedback messages.
+# Messages from this sender are never processed to prevent infinite loops.
+HUB_SENDER_ID = "hub"
 
 # Work queues (module level for handler access)
 _injection_queue: queue.Queue[InjectionTask] = queue.Queue()
 _message_queue: queue.Queue[MessageTask] = queue.Queue()
 _session_queue: queue.Queue[SessionTask] = queue.Queue()
+
+
+_REQUIRED_FIELDS: dict[str, type] = {"from": str, "to": str, "content": str}
+_VALID_TYPES = {"message", "completion", "delivery-status"}
+_VALID_PRIORITIES = {"normal", "urgent"}
+
+
+def validate_message(msg: dict[str, Any]) -> tuple[bool, list[str]]:
+    """Validate message schema: required fields, types, and enum values.
+
+    Returns (is_valid, list_of_errors).
+    """
+    errors: list[str] = []
+
+    for field, expected_type in _REQUIRED_FIELDS.items():
+        value = msg.get(field)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            errors.append(f"Missing or empty required field: '{field}'")
+        elif not isinstance(value, expected_type):
+            errors.append(f"Field '{field}' must be {expected_type.__name__}, got {type(value).__name__}")
+
+    msg_type = msg.get("type")
+    if msg_type is not None and msg_type not in _VALID_TYPES:
+        errors.append(f"Invalid type '{msg_type}', must be one of: {', '.join(sorted(_VALID_TYPES))}")
+
+    priority = msg.get("priority")
+    if priority is not None and priority not in _VALID_PRIORITIES:
+        errors.append(f"Invalid priority '{priority}', must be one of: {', '.join(sorted(_VALID_PRIORITIES))}")
+
+    return (len(errors) == 0, errors)
+
+
+def _send_delivery_feedback(
+    *,
+    to: str,
+    status: str,
+    original_message_id: str | None = None,
+    thread_id: str | None = None,
+    delivered_to: list[str] | None = None,
+    reason: str | None = None,
+    errors: list[str] | None = None,
+) -> None:
+    """Write a delivery-status feedback message back to the sender.
+
+    This converts silent failures into observable ones — the sender
+    receives an explicit success or error instead of silence.
+    """
+    feedback: dict[str, Any] = {
+        "from": HUB_SENDER_ID,
+        "to": to,
+        "type": "delivery-status",
+        "status": status,
+        "timestamp": time.time(),
+    }
+    if original_message_id:
+        feedback["originalMessageId"] = original_message_id
+    if thread_id:
+        feedback["threadId"] = thread_id
+    if delivered_to:
+        feedback["deliveredTo"] = delivered_to
+    if reason:
+        feedback["reason"] = reason
+    if errors:
+        feedback["errors"] = errors
+
+    feedback_id = str(uuid.uuid4())[:12]
+    feedback_path = MESSAGES_DIR / f"feedback-{feedback_id}.json"
+    try:
+        MESSAGES_DIR.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(feedback_path, feedback)
+        log.debug(f"Sent delivery feedback ({status}) to {to}: {reason or 'ok'}")
+    except OSError as e:
+        log.warning(f"Failed to write delivery feedback: {e}")
 
 
 def get_injection_queue() -> queue.Queue[InjectionTask]:
@@ -138,9 +216,23 @@ def inject_message_sync(session_id: str, text: str) -> bool:
     return False
 
 
-def inject_message(session_id: str, text: str) -> None:
+def inject_message(
+    session_id: str,
+    text: str,
+    *,
+    original_sender: str | None = None,
+    original_message_id: str | None = None,
+    thread_id: str | None = None,
+    target_agent: str | None = None,
+) -> None:
     """Queue message for async injection (non-blocking)."""
-    _injection_queue.put(InjectionTask(session_id=session_id, text=text))
+    _injection_queue.put(InjectionTask(
+        session_id=session_id, text=text,
+        original_sender=original_sender,
+        original_message_id=original_message_id,
+        thread_id=thread_id,
+        target_agent=target_agent,
+    ))
 
 
 def injection_worker(shutdown_event: threading.Event) -> None:
@@ -152,7 +244,21 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             continue
 
         try:
-            inject_message_sync(task.session_id, task.text)
+            success = inject_message_sync(task.session_id, task.text)
+            if not success and task.original_sender:
+                # Injection failed after retries — notify the original sender
+                metrics.inc("agent_hub_messages_delivery_failed_total")
+                _send_delivery_feedback(
+                    to=task.original_sender, status="failed",
+                    original_message_id=task.original_message_id,
+                    thread_id=task.thread_id,
+                    reason="injection_failed",
+                    errors=[
+                        f"Failed to inject into session {task.session_id[:8]} "
+                        f"for agent {task.target_agent or 'unknown'} "
+                        f"after {INJECTION_RETRIES} attempts"
+                    ],
+                )
         except Exception as e:
             log.error(f"Injection worker error: {e}")
         finally:
@@ -195,12 +301,32 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         metrics.inc("agent_hub_messages_failed_total")
         return
 
-    # Check rate limiting for sender
+    # Skip hub-originated feedback messages to prevent infinite loops
     sender = cast(str, msg.get("from", "unknown"))
+    if sender == HUB_SENDER_ID:
+        return
+
+    msg_id = msg.get("id") or path.stem
+
+    # Validate message schema before any processing
+    valid, validation_errors = validate_message(msg)
+    if not valid:
+        log.warning(f"Message validation failed for {path.name}: {validation_errors}")
+        metrics.inc("agent_hub_messages_failed_total")
+        metrics.inc("agent_hub_messages_validation_failed_total")
+        # Only send feedback if we have a usable sender address
+        if sender != "unknown":
+            _send_delivery_feedback(
+                to=sender, status="failed", original_message_id=msg_id,
+                reason="validation_error", errors=validation_errors,
+            )
+        return
+
     allowed, reason = check_rate_limit(sender)
     if not allowed:
         log.warning(f"Rate limited message from {sender}: {reason}")
         metrics.inc("agent_hub_messages_failed_total")
+        metrics.inc("agent_hub_messages_rate_limited_total")
         # Archive the rate-limited message
         ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
         msg["rateLimited"] = True
@@ -208,6 +334,11 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         path.write_text(json.dumps(msg, indent=2))
         dest = ARCHIVE_DIR / path.name
         path.rename(dest)
+        _send_delivery_feedback(
+            to=sender, status="failed", original_message_id=msg_id,
+            thread_id=msg.get("threadId"), reason="rate_limited",
+            errors=[cast(str, reason)],
+        )
         return
 
     # Record this message for rate limiting
@@ -230,6 +361,12 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     else:
         log.info(f"Unknown target agent: {to}")
         metrics.inc("agent_hub_messages_failed_total")
+        metrics.inc("agent_hub_messages_routing_failed_total")
+        _send_delivery_feedback(
+            to=sender, status="failed", original_message_id=msg_id,
+            thread_id=msg.get("threadId"), reason="unknown_agent",
+            errors=[f"No registered agent with id '{to}'"],
+        )
         return
 
     # Skip if already read
@@ -239,6 +376,11 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
     all_sessions = get_sessions()
     if not all_sessions:
         log.info("No active sessions for message delivery")
+        _send_delivery_feedback(
+            to=sender, status="failed", original_message_id=msg_id,
+            thread_id=msg.get("threadId"), reason="no_sessions",
+            errors=["No active sessions available for delivery"],
+        )
         return
 
     # Only deliver to sessions created after daemon start (plus coordinator)
@@ -254,7 +396,8 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         f"{len(sessions)} active sessions (of {len(all_sessions)} total)"
     )
 
-    delivered = False
+    delivered_to: list[str] = []
+    undeliverable: list[str] = []
     for agent in target_agents:
         # Don't notify sender
         if agent["id"] == msg.get("from"):
@@ -269,12 +412,19 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
             notification = format_notification(msg, cast(str, agent["id"]))
             for session in matching_sessions:
                 log.info(f"Injecting message into session {session['id']} for agent {agent['id']}")
-                inject_message(cast(str, session["id"]), notification)
-                delivered = True
+                inject_message(
+                    cast(str, session["id"]), notification,
+                    original_sender=sender,
+                    original_message_id=msg_id,
+                    thread_id=msg.get("threadId"),
+                    target_agent=cast(str, agent["id"]),
+                )
+                delivered_to.append(cast(str, agent["id"]))
         else:
             log.info(f"No session found for agent {agent['id']}")
+            undeliverable.append(cast(str, agent["id"]))
 
-    if delivered:
+    if delivered_to:
         # Mark message as read to prevent re-delivery
         msg["read"] = True
         msg["deliveredAt"] = time.time()
@@ -284,8 +434,18 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
         except OSError as e:
             log.warning(f"Marked message as read failed: {e}")
         metrics.inc("agent_hub_messages_total")
+        _send_delivery_feedback(
+            to=sender, status="delivered", original_message_id=msg_id,
+            thread_id=msg.get("threadId"), delivered_to=delivered_to,
+        )
     else:
         metrics.inc("agent_hub_messages_failed_total")
+        metrics.inc("agent_hub_messages_delivery_failed_total")
+        _send_delivery_feedback(
+            to=sender, status="failed", original_message_id=msg_id,
+            thread_id=msg.get("threadId"), reason="no_sessions_for_agents",
+            errors=[f"No active session for agent(s): {', '.join(undeliverable)}"],
+        )
 
 
 class MessageHandler(FileSystemEventHandler):
@@ -299,6 +459,10 @@ class MessageHandler(FileSystemEventHandler):
             return
         # Ignore archive directory
         if "archive" in path.parts:
+            return
+        # Skip feedback files early (they'll also be skipped by the hub sender check,
+        # but this avoids unnecessary queueing)
+        if path.name.startswith("feedback-"):
             return
 
         log.info(f"New message file detected: {path.name}")

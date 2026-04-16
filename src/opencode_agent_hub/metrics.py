@@ -18,6 +18,10 @@ class PrometheusMetrics:
         self._counters: dict[str, int] = {
             "agent_hub_messages_total": 0,
             "agent_hub_messages_failed_total": 0,
+            "agent_hub_messages_validation_failed_total": 0,
+            "agent_hub_messages_routing_failed_total": 0,
+            "agent_hub_messages_delivery_failed_total": 0,
+            "agent_hub_messages_rate_limited_total": 0,
             "agent_hub_injections_total": 0,
             "agent_hub_injections_failed_total": 0,
             "agent_hub_injections_retried_total": 0,
@@ -51,6 +55,10 @@ class PrometheusMetrics:
         self._help: dict[str, str] = {
             "agent_hub_messages_total": "Total messages processed successfully",
             "agent_hub_messages_failed_total": "Total messages that failed processing",
+            "agent_hub_messages_validation_failed_total": "Messages rejected due to schema validation failure",
+            "agent_hub_messages_routing_failed_total": "Messages that could not be routed to target agent",
+            "agent_hub_messages_delivery_failed_total": "Messages that failed injection into target session",
+            "agent_hub_messages_rate_limited_total": "Messages rejected due to sender rate limiting",
             "agent_hub_injections_total": "Total message injections sent to sessions",
             "agent_hub_injections_failed_total": "Total injection failures after retries",
             "agent_hub_injections_retried_total": "Total injection retry attempts",
