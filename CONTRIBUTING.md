@@ -152,212 +152,15 @@ Releases are automated via [release-please](https://github.com/google-github-act
 
 ## Testing Standards
 
-### Philosophy
+Tests are the **primary documentation**. See [AGENTS.md](AGENTS.md) for test-writing patterns (naming, structure, assertions). Run tests with:
 
-Tests are the **primary documentation**. A new developer should understand the codebase by reading tests. Every test must explain:
-
-- **What** is being tested (function name)
-- **Why** it matters (docstring)
-- **How** it works (Given-When-Then structure)
-
-### Organization
-
-Organize tests by feature, not by implementation detail:
-
-```python
-# ✅ Good - by feature
-class TestSessionOrientation:
-    def test_orient_session_creates_agent_identity()
-    def test_orient_session_skips_pre_daemon_sessions()
-    def test_orient_session_retries_on_no_response()
-
-# ❌ Bad - by function
-class TestOrientSession:
-    def test_orient_session_1()
-    def test_orient_session_2()
+```bash
+uv run pytest                    # all tests
+uv run pytest tests/test_foo.py  # single file
+uv run pytest -k "keyword"      # by keyword
 ```
 
-### Naming Convention
-
-```python
-# Format: test_[action]_[condition]_[expected_result]
-
-def test_rate_limit_blocks_message_when_max_exceeded()
-def test_gc_removes_agents_stale_for_over_one_hour()
-def test_coordinator_notifies_on_new_agent_registration()
-def test_session_discovery_only_orients_post_daemon_sessions()
-```
-
----
-
-## Self-Evident Test Patterns
-
-Tests should explain themselves without external documentation. Follow these patterns:
-
-### 1. Test Names Are Complete Sentences
-
-```python
-# ❌ Bad - unclear what it tests
-def test_config():
-    """Test configuration."""
-    pass
-
-# ✅ Good - explains exactly what's tested
-def test_env_var_takes_precedence_over_config_file():
-    """When both env var and config file specify a value, env var wins.
-    
-    Priority order: env var > config file > default value
-    """
-    pass
-```
-
-### 2. Use Given-When-Then Structure
-
-```python
-def test_rate_limit_blocks_excessive_messages():
-    """Agent sending more than max_messages within window gets rate limited."""
-    from opencode_agent_hub.rate_limiting import check_rate_limit, _agent_message_times
-    
-    # GIVEN: An agent that has sent max_messages within the window
-    agent_id = "test-agent"
-    now = time.time()
-    _agent_message_times[agent_id] = [now - 10, now - 20, now - 30]
-    
-    # WHEN: The agent tries to send another message
-    allowed, reason = check_rate_limit(agent_id)
-    
-    # THEN: The message should be blocked with a rate limit reason
-    assert allowed is False
-    assert "Rate limit" in reason
-```
-
-### 3. No Magic Values
-
-```python
-# ❌ Bad - what does 1000 mean?
-def test_gc():
-    agent = {"lastSeen": 1000}
-    assert is_agent_active(agent) == False
-
-# ✅ Good - constants explain intent
-ONE_HOUR_IN_MS = 3600 * 1000
-STALE_TIMESTAMP = int(time.time() * 1000) - ONE_HOUR_IN_MS - 1000
-
-def test_gc_considers_agent_stale_after_one_hour():
-    """Agents not seen for >1 hour are marked stale and cleaned up."""
-    agent = {
-        "id": "stale-agent",
-        "lastSeen": STALE_TIMESTAMP,
-    }
-    
-    is_stale = not is_agent_active(agent)
-    
-    assert is_stale is True, "Agent should be stale after 1 hour of inactivity"
-```
-
-### 4. Table-Driven Tests with Descriptive Names
-
-```python
-@pytest.mark.parametrize(
-    "scenario,input_value,expected_result",
-    [
-        ("env_var_true", "true", True),
-        ("env_var_True", "True", True),
-        ("env_var_1", "1", True),
-        ("env_var_false", "false", False),
-        ("env_var_0", "0", False),
-    ],
-)
-def test_boolean_coercion_recognizes_common_formats(
-    scenario: str, input_value: str, expected_result: bool
-):
-    """Boolean config values handle common string formats case-insensitively."""
-    with mock.patch.dict(os.environ, {"TEST": input_value}):
-        result = parse_bool(os.environ["TEST"])
-    
-    assert result is expected_result, f"Failed for scenario: {scenario}"
-```
-
-### 5. Assertions Explain Failures
-
-```python
-# ❌ Bad - no context on failure
-assert len(agents) == 3
-
-# ✅ Good - explains what went wrong
-assert len(agents) == 3, (
-    f"Expected 3 registered agents (coordinator + 2 workers), "
-    f"but found {len(agents)}: {list(agents.keys())}"
-)
-```
-
-### 6. Group Related Tests with Docstrings
-
-```python
-class TestMessageThreadLifecycle:
-    """Verify thread creation, updates, and resolution.
-    
-    Threads track conversation state between agents:
-    - Created when first message is sent
-    - Updated when new participants join
-    - Resolved when owner sends completion message with RESOLVED
-    """
-    
-    def test_thread_created_on_first_message(self):
-        """Sending a message without threadId auto-creates a thread."""
-        pass
-    
-    def test_thread_participants_updated_on_reply(self):
-        """Replying to a thread adds the sender to participants."""
-        pass
-```
-
-### 7. Type Hints and Clear Names
-
-```python
-# ❌ Bad
-def test_x():
-    a = {"id": "a", "lastSeen": 12345}
-    b = load_agents()
-    assert "a" in b
-
-# ✅ Good
-def test_load_agents_returns_dict_keyed_by_agent_id():
-    """load_agents() returns {agent_id: agent_dict} for all agent files."""
-    expected_agent: dict[str, Any] = {
-        "id": "test-agent-1",
-        "lastSeen": 12345,
-        "projectPath": "/tmp/test",
-        "role": "Test agent for validation",
-    }
-    agents_by_id: dict[str, dict[str, Any]] = load_agents()
-    
-    assert "test-agent-1" in agents_by_id
-    assert agents_by_id["test-agent-1"]["role"] == "Test agent for validation"
-```
-
-### 8. Document Complex Setup
-
-```python
-def test_orientation_retry_fires_after_delay_elapsed():
-    """Unresponsive sessions get re-oriented after ORIENTATION_RETRY_DELAY seconds.
-    
-    This handles cases where the agent session is busy and misses the
-    initial orientation message. We retry up to ORIENTATION_RETRY_MAX times.
-    """
-    # Configure: Allow 2 retries, wait 60s between attempts
-    from opencode_agent_hub.sessions import ORIENTATION_RETRY_MAX, ORIENTATION_RETRY_DELAY
-    from opencode_agent_hub.sessions import ORIENTATION_PENDING
-    
-    # Simulate: Session oriented 61 seconds ago (1s past retry delay)
-    ORIENTATION_PENDING["ses_123"] = {
-        "oriented_at": time.time() - 61,  # 61s ago = retry delay + 1s
-        "retries": 0,
-        "agent_id": "unresponsive-agent",
-    }
-    
-    # ... rest of test
-```
+Pre-commit hooks run the full test suite, ruff, mypy, bandit, and vulture automatically.
 
 ---
 
@@ -367,14 +170,19 @@ def test_orientation_retry_fires_after_delay_elapsed():
 
 | Module | Tests | Status |
 |--------|-------|--------|
-| Configuration | 11 | ✅ Complete |
-| Rate Limiting | 5 | ✅ Complete |
-| Coordinator | 35+ | ✅ Complete |
-| Coordinator Cost | 8 | ✅ Complete |
-| Session Agents | 12 | ✅ Complete |
-| Orientation Retry | 11 | ✅ Complete |
-| Watch Dashboard | 38 | ✅ Complete |
-| **Total** | **150** | **✅ All Passing** |
+| Configuration | 10 | ✅ Complete |
+| Rate Limiting | 4 | ✅ Complete |
+| Coordinator | 26 | ✅ Complete |
+| Coordinator Model | 3 | ✅ Complete |
+| Model Routing | 13 | ✅ Complete |
+| Session Agents | 18 | ✅ Complete |
+| Daemon Integration | 5 | ✅ Complete |
+| Orientation Retry | 13 | ✅ Complete |
+| Watch Dashboard | 49 | ✅ Complete |
+| Placeholder | 3 | ✅ Complete |
+| SQLite Schema | 3 | ✅ Complete (2 conditional skip) |
+| Agent ID Generation | 4 | ✅ Complete |
+| **Total** | **151** | **✅ All Passing** |
 
 ### Coverage Gaps (Priority Order)
 
