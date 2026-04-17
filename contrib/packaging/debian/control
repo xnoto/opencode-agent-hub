@@ -7,7 +7,6 @@ Build-Depends: debhelper-compat (= 13),
                python3-all (>= 3.11),
                python3-hatchling,
                python3-prometheus-client,
-               python3-pytest,
                python3-requests,
                python3-watchdog,
                pybuild-plugin-pyproject
