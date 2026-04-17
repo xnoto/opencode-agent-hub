@@ -337,9 +337,7 @@ def injection_worker(shutdown_event: threading.Event) -> None:
                 session_agent = COORDINATOR_AGENT
             else:
                 session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
-                session_model = (
-                    AGENT_MODELS.get(session_agent) if session_agent else None
-                )
+                session_model = AGENT_MODELS.get(session_agent) if session_agent else None
             log.debug(
                 f"Worker resolving model for {task.session_id[:8]}: "
                 f"resolved={session_agent!r} "
