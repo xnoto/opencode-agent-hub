@@ -506,9 +506,10 @@ def start_coordinator() -> bool:
     config.log.info("Starting coordinator session...")
 
     # Resolve the coordinator's model from opencode.json.
-    # First check for an "agent" field (e.g. "minimax") and look up its model
-    # in the AGENT_MODELS map built at preflight. Fall back to parsing the
-    # "model" field (e.g. "opencode/minimax-m2.5-free") directly.
+    # The "model" field (e.g. "opencode/minimax-m2.5-free") specifies the
+    # exact model to use and takes priority. The "agent" field (e.g. "minimax")
+    # is used for the prompt_async agent label; if no explicit model is given
+    # we fall back to looking up the agent in AGENT_MODELS.
     coordinator_model_override: dict[str, str] | None = None
     agent_name: str | None = None
     try:
@@ -521,20 +522,23 @@ def start_coordinator() -> bool:
             agent_name = opencode_config.get("agent")
             model_str = opencode_config.get("model", "")
 
-            # Prefer agent→model lookup (uses the same model the agent is configured with)
-            if agent_name and agent_name in config.AGENT_MODELS:
-                coordinator_model_override = config.AGENT_MODELS[agent_name]
-                config.log.info(
-                    f"Coordinator agent: {agent_name}, "
-                    f"model: {coordinator_model_override['providerID']}/{coordinator_model_override['modelID']}"
-                )
-            elif model_str and "/" in model_str:
+            # Prefer explicit model field (allows specifying a free/specific model)
+            if model_str and "/" in model_str:
                 provider_id, model_id = model_str.split("/", 1)
                 coordinator_model_override = {
                     "providerID": provider_id,
                     "modelID": model_id,
                 }
-                config.log.info(f"Coordinator model: {model_str}")
+                config.log.info(
+                    f"Coordinator agent: {agent_name or 'n/a'}, model: {model_str}"
+                )
+            elif agent_name and agent_name in config.AGENT_MODELS:
+                # Fall back to agent→model lookup when no explicit model
+                coordinator_model_override = config.AGENT_MODELS[agent_name]
+                config.log.info(
+                    f"Coordinator agent: {agent_name}, "
+                    f"model: {coordinator_model_override['providerID']}/{coordinator_model_override['modelID']}"
+                )
             else:
                 config.log.info(f"Coordinator agent: {agent_name or 'n/a'}, model: default")
     except Exception as e:
