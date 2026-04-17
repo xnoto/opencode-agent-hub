@@ -59,29 +59,12 @@ The daemon detects a session's agent by querying the **first user message** in S
 
 ## Testing
 
-Tests live in the `tests/` directory and use pytest. Each test file maps to a feature area, not an implementation file.
+Tests are in `tests/`, organized by feature area. Run with `uv run pytest`. Test names follow `test_[action]_[condition]_[expected]` and read as complete sentences. Use Given-When-Then structure with named constants and descriptive assertion messages.
 
-### Conventions
-
-- **Naming**: `test_[action]_[condition]_[expected_result]` — names read as complete sentences
-- **Structure**: Given-When-Then with named constants (no magic values)
-- **Assertions**: Include failure context — `assert x == y, f"Expected ... got {x}"`
-- **Organization**: Group related tests by feature using classes with docstrings
-- **Type hints**: Use clear variable names with type annotations
-
-### Key Test Files
-
-- `test_model_routing.py` — enforces the 6 agent detection invariants above
-- `test_coordinator_model_logging.py` — verifies coordinator passes agent/model from config
-- `test_daemon_integration.py` — end-to-end orientation and session discovery
-- `test_orientation_retry.py` — retry logic, deferred orientation, format verification
-
-### Writing New Tests
-
-When adding or modifying injection behavior, ensure tests verify:
+When modifying injection behavior, ensure tests verify:
 - The correct `model` and `agent` appear in the `prompt_async` payload
 - `None` values are omitted from the payload (not passed as null)
 - No agent name strings are hardcoded — use `DEFAULT_AGENT` or config values
 - Both the coordinator and regular session code paths are covered
 
-Pre-commit hooks run the full suite, ruff, mypy, bandit, and vulture automatically. All tests must pass before merge.
+Pre-commit hooks enforce all checks automatically. Run `pre-commit run --all-files` to verify locally.

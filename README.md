@@ -194,14 +194,7 @@ The coordinator is a dedicated OpenCode session that introduces agents to each o
 | `AGENT_HUB_COORDINATOR_BOOTSTRAP_REQUIRED` | `false` | Fail startup if bootstrap times out |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom AGENTS.md path |
 
-The coordinator model is set in `~/.agent-hub/coordinator/opencode.json` via the `"model"` field (default: `opencode/minimax-m2.5-free`). An optional `"agent"` field controls the agent label on injected messages; if omitted, the hub server's default applies.
-
-Custom coordinator instructions are searched in order:
-1. `AGENT_HUB_COORDINATOR_AGENTS_MD` env var
-2. `~/.config/agent-hub-daemon/AGENTS.md` (or `COORDINATOR.md`)
-3. Package template (`contrib/coordinator/AGENTS.md`)
-4. `/usr/local/share/opencode-agent-hub/coordinator/AGENTS.md`
-5. Auto-generated minimal default
+The coordinator model is configured in `opencode.json` within the coordinator directory (default: `opencode/minimax-m2.5-free`). Custom coordinator instructions (`AGENTS.md`) are auto-detected from the config directory, package template, or system paths — override with `AGENT_HUB_COORDINATOR_AGENTS_MD`.
 
 ## Message Format
 
@@ -211,7 +204,7 @@ Messages are JSON files in `~/.agent-hub/messages/`:
 {
   "from": "agent-id",
   "to": "target-agent-id",
-  "type": "message|completion|delivery-status",
+  "type": "message|completion|delivery-status|task|question|context|error",
   "content": "Message content",
   "priority": "normal|urgent",
   "threadId": "auto-generated-or-provided",
@@ -219,9 +212,7 @@ Messages are JSON files in `~/.agent-hub/messages/`:
 }
 ```
 
-Required fields: `from`, `to`, `content`. The hub validates message schema on receipt and rejects malformed messages.
-
-**Delivery feedback**: When a message is delivered (or delivery fails), the hub sends a `delivery-status` message back to the original sender with the outcome.
+Required fields: `from`, `to`, `content`. Messages are validated with pydantic on receipt; malformed messages are rejected with delivery feedback to the sender.
 
 ## Directory Structure
 
@@ -231,7 +222,7 @@ Required fields: `from`, `to`, `content`. The hub validates message schema on re
 ├── messages/               # Pending messages
 │   └── archive/            # Processed messages
 ├── threads/                # Conversation threads
-├── metrics.prom            # Prometheus metrics
+├── metrics.prom            # Prometheus metrics (prometheus_client format)
 ├── oriented_sessions.json  # Orientation cache
 └── session_agents.json     # Session-to-agent mapping
 
@@ -241,15 +232,7 @@ Required fields: `from`, `to`, `content`. The hub validates message schema on re
 
 ## Development
 
-```bash
-uv sync --all-extras
-uv run ruff check .
-uv run ruff format .
-uv run mypy src/
-uv run pytest
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for integration testing and architecture details.
+Install with `uv sync --all-extras`. Pre-commit hooks enforce linting, formatting, type checking, and tests automatically. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow. See [AGENTS.md](AGENTS.md) for injection pipeline internals and test-writing conventions.
 
 ## Acknowledgments
 

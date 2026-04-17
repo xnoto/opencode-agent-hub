@@ -150,66 +150,11 @@ Releases are automated via [release-please](https://github.com/google-github-act
 
 ---
 
-## Testing Standards
+## Testing
 
-Tests are the **primary documentation**. See [AGENTS.md](AGENTS.md) for test-writing patterns (naming, structure, assertions). Run tests with:
+Tests are in `tests/`, organized by feature. Run with `uv run pytest`. See [AGENTS.md](AGENTS.md) for test-writing conventions and injection-specific testing guidance.
 
-```bash
-uv run pytest                    # all tests
-uv run pytest tests/test_foo.py  # single file
-uv run pytest -k "keyword"      # by keyword
-```
-
-Pre-commit hooks run the full test suite, ruff, mypy, bandit, and vulture automatically.
-
----
-
-## Test Coverage
-
-### Current Status
-
-| Module | Tests | Status |
-|--------|-------|--------|
-| Configuration | 10 | ✅ Complete |
-| Rate Limiting | 4 | ✅ Complete |
-| Coordinator | 26 | ✅ Complete |
-| Coordinator Model | 3 | ✅ Complete |
-| Model Routing | 13 | ✅ Complete |
-| Session Agents | 18 | ✅ Complete |
-| Daemon Integration | 5 | ✅ Complete |
-| Orientation Retry | 13 | ✅ Complete |
-| Watch Dashboard | 49 | ✅ Complete |
-| Placeholder | 3 | ✅ Complete |
-| SQLite Schema | 3 | ✅ Complete (2 conditional skip) |
-| Agent ID Generation | 4 | ✅ Complete |
-| **Total** | **151** | **✅ All Passing** |
-
-### Coverage Gaps (Priority Order)
-
-#### Phase 1: Critical Infrastructure
-- [ ] Hub server lifecycle management (`start_hub_server`, `stop_hub_server` in hub_server.py)
-- [ ] Preflight check validation (`check_agent_hub_mcp_configured` in config.py)
-- [ ] Message injection retry logic with exponential backoff (messaging.py)
-
-#### Phase 2: Core Pipeline
-- [ ] Message processing end-to-end (receive → route → inject)
-- [ ] Thread creation and resolution
-- [ ] Garbage collection integration
-
-#### Phase 2b: Messaging Reliability
-- [ ] Message schema validation (required fields: `from`, `to`, `content`; valid types and priorities)
-- [ ] Delivery-status feedback generation (success and failure paths)
-- [ ] Classified failure metrics (`validation_failed`, `routing_failed`, `delivery_failed`, `rate_limited`)
-- [ ] Thread resolution locking (concurrent resolution race prevention)
-
-#### Phase 3: Edge Cases
-- [ ] Error handling for corrupted agent files (persistence.py)
-- [ ] Session discovery with locked/missing SQLite DB (sessions.py)
-- [ ] Metrics export under load (metrics.py)
-
-#### Phase 4: Integration
-- [ ] Service management (`--install-service`, `--uninstall-service`)
-- [ ] End-to-end with mocked OpenCode API
+Pre-commit hooks enforce all checks automatically. Run `pre-commit run --all-files` to verify locally.
 
 ### Integration Testing
 
