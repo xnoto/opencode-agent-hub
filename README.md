@@ -130,7 +130,10 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
 
 ```json
 {
-  "opencode_port": 4096,
+  "hub": {
+    "port": 4096,
+    "model": "opencode/minimax-m2.5-free"
+  },
   "log_level": "INFO",
   "rate_limit": {
     "enabled": false,
@@ -155,6 +158,8 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENCODE_PORT` | `4096` | Hub server port |
+| `AGENT_HUB_MODEL` | `opencode/minimax-m2.5-free` | Hub server default model (`provider/model`) |
+| `AGENT_HUB_DEFAULT_AGENT` | (none) | Agent name for undetectable sessions |
 | `AGENT_HUB_DAEMON_LOG_LEVEL` | `INFO` | Log level |
 | `AGENT_HUB_MESSAGE_TTL` | `3600` | Message TTL (seconds) |
 | `AGENT_HUB_AGENT_STALE` | `3600` | Agent stale threshold (seconds) |
@@ -189,7 +194,7 @@ The coordinator is a dedicated OpenCode session that introduces agents to each o
 | `AGENT_HUB_COORDINATOR_BOOTSTRAP_REQUIRED` | `false` | Fail startup if bootstrap times out |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom AGENTS.md path |
 
-The coordinator model is set in `~/.agent-hub/coordinator/opencode.json` (default: `opencode/minimax-m2.5-free`).
+The coordinator model is set in `~/.agent-hub/coordinator/opencode.json` via the `"model"` field (default: `opencode/minimax-m2.5-free`). An optional `"agent"` field controls the agent label on injected messages; if omitted, the hub server's default applies.
 
 Custom coordinator instructions are searched in order:
 1. `AGENT_HUB_COORDINATOR_AGENTS_MD` env var

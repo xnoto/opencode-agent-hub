@@ -318,11 +318,10 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             continue
 
         try:
-            # Detect the session's active agent from its last assistant message,
-            # then look up the corresponding model from the agent→model map
-            # built at startup. Falls back to DEFAULT_AGENT for new sessions
-            # with no message history. This ensures the daemon never lets the
-            # hub server pick its own default model.
+            # Detect the session's active agent, then look up the model.
+            # For sessions where the agent can't be detected (and DEFAULT_AGENT
+            # is None), we skip the agent label and let the hub server's
+            # default model (set via HUB_MODEL at startup) handle it.
             from opencode_agent_hub.config import (
                 AGENT_MODELS,
                 COORDINATOR_AGENT,
@@ -333,13 +332,13 @@ def injection_worker(shutdown_event: threading.Event) -> None:
 
             # For the coordinator session, use the model resolved at startup
             # (from opencode.json). The coordinator has no TUI user, so
-            # get_session_agent would detect the hub server's default (claude).
+            # get_session_agent would detect the hub server's default.
             if COORDINATOR_SESSION_ID and task.session_id == COORDINATOR_SESSION_ID and COORDINATOR_MODEL:
                 session_model = COORDINATOR_MODEL
-                session_agent = COORDINATOR_AGENT or DEFAULT_AGENT
+                session_agent = COORDINATOR_AGENT
             else:
                 session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
-                session_model = AGENT_MODELS.get(session_agent)
+                session_model = AGENT_MODELS.get(session_agent) if session_agent else None
             log.debug(
                 f"Worker resolving model for {task.session_id[:8]}: "
                 f"resolved={session_agent!r} "

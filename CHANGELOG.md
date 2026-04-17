@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+* **config:** configurable hub server default model via `AGENT_HUB_MODEL` (default: `opencode/minimax-m2.5-free`)
+* **injection:** pass agent label on `prompt_async` calls to match session's actual agent in the UI
+* **messaging:** message validation, delivery feedback, classified failure metrics, injection tracking, thread resolution locking
+
+### Bug Fixes
+
+* **preflight:** fix 64KB pipe buffer truncation on large OpenCode configs
+* **injection:** detect session agent from first user message instead of assistant messages
+* **coordinator:** persist model and agent at startup for correct injection routing
+* **coordinator:** prefer explicit model field over agent lookup in `opencode.json`
+* **config:** remove hardcoded agent name fallbacks — all defaults are configurable
+
 ## [1.4.3](https://github.com/xnoto/opencode-agent-hub/compare/v1.4.2...v1.4.3) (2026-04-16)
 
 
