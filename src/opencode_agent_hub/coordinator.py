@@ -765,12 +765,11 @@ def poll_coordinator_cost() -> None:
     )
 
     # Update metrics (set absolute values, not increments)
-    with metrics._lock:
-        metrics._counters["agent_hub_coordinator_tokens_input"] = total_input
-        metrics._counters["agent_hub_coordinator_tokens_output"] = total_output
-        metrics._counters["agent_hub_coordinator_tokens_cache_read"] = total_cache_read
-        metrics._counters["agent_hub_coordinator_tokens_cache_write"] = total_cache_write
-        metrics._counters["agent_hub_coordinator_messages_total"] = assistant_count
+    metrics.set_counter("agent_hub_coordinator_tokens_input", total_input)
+    metrics.set_counter("agent_hub_coordinator_tokens_output", total_output)
+    metrics.set_counter("agent_hub_coordinator_tokens_cache_read", total_cache_read)
+    metrics.set_counter("agent_hub_coordinator_tokens_cache_write", total_cache_write)
+    metrics.set_counter("agent_hub_coordinator_messages_total", assistant_count)
     metrics.set_gauge("agent_hub_coordinator_estimated_cost_usd", round(estimated_cost, 6))
 
     config.log.debug(

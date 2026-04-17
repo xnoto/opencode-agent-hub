@@ -9,14 +9,7 @@ from opencode_agent_hub.metrics import metrics
 
 def _reset_metrics() -> None:
     """Reset coordinator-related metrics to zero."""
-    # The metrics object is an instance of PrometheusMetrics with _lock attribute
-    with metrics._lock:
-        metrics._counters["agent_hub_coordinator_tokens_input"] = 0
-        metrics._counters["agent_hub_coordinator_tokens_output"] = 0
-        metrics._counters["agent_hub_coordinator_tokens_cache_read"] = 0
-        metrics._counters["agent_hub_coordinator_tokens_cache_write"] = 0
-        metrics._counters["agent_hub_coordinator_messages_total"] = 0
-    metrics.set_gauge("agent_hub_coordinator_estimated_cost_usd", 0.0)
+    metrics.reset()
 
 
 # NOTE: These tests require complex mocking and access to metrics internals.

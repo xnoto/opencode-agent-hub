@@ -26,7 +26,7 @@ from opencode_agent_hub.config import (
     log,
 )
 from opencode_agent_hub.metrics import metrics
-from opencode_agent_hub.models import InjectionTask, MessageTask, SessionTask
+from opencode_agent_hub.models import InjectionTask, MessageSchema, MessageTask, SessionTask
 from opencode_agent_hub.persistence import check_thread_resolution, ensure_thread_id, load_agents
 from opencode_agent_hub.rate_limiting import check_rate_limit, record_message_sent
 from opencode_agent_hub.sessions import (
@@ -47,40 +47,34 @@ _message_queue: queue.Queue[MessageTask] = queue.Queue()
 _session_queue: queue.Queue[SessionTask] = queue.Queue()
 
 
-_REQUIRED_FIELDS: dict[str, type] = {"from": str, "to": str, "content": str}
-_VALID_TYPES = {"message", "completion", "delivery-status", "task", "question", "context", "error"}
-_VALID_PRIORITIES = {"normal", "urgent"}
-
-
 def validate_message(msg: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate message schema: required fields, types, and enum values.
 
+    Uses :class:`MessageSchema` (pydantic) for validation.
     Returns (is_valid, list_of_errors).
     """
-    errors: list[str] = []
+    from pydantic import ValidationError
 
-    for field, expected_type in _REQUIRED_FIELDS.items():
-        value = msg.get(field)
-        if value is None or (isinstance(value, str) and not value.strip()):
-            errors.append(f"Missing or empty required field: '{field}'")
-        elif not isinstance(value, expected_type):
-            errors.append(
-                f"Field '{field}' must be {expected_type.__name__}, got {type(value).__name__}"
-            )
+    # Map 'from' -> 'from_' for the pydantic model (reserved keyword).
+    data = {("from_" if k == "from" else k): v for k, v in msg.items()}
 
-    msg_type = msg.get("type")
-    if msg_type is not None and msg_type not in _VALID_TYPES:
-        errors.append(
-            f"Invalid type '{msg_type}', must be one of: {', '.join(sorted(_VALID_TYPES))}"
-        )
+    try:
+        MessageSchema(**data)
+    except ValidationError as exc:
+        errors: list[str] = []
+        for err in exc.errors():
+            # Use the custom message from field_validator when available;
+            # otherwise build a human-readable string from the pydantic error.
+            ctx_msg = err.get("ctx", {}).get("error")
+            if ctx_msg:
+                errors.append(str(ctx_msg))
+            else:
+                loc = err.get("loc", ())
+                field = ".".join("from" if str(p) == "from_" else str(p) for p in loc)
+                errors.append(f"Field '{field}': {err['msg']}")
+        return (False, errors)
 
-    priority = msg.get("priority")
-    if priority is not None and priority not in _VALID_PRIORITIES:
-        errors.append(
-            f"Invalid priority '{priority}', must be one of: {', '.join(sorted(_VALID_PRIORITIES))}"
-        )
-
-    return (len(errors) == 0, errors)
+    return (True, [])
 
 
 def _send_delivery_feedback(
@@ -333,6 +327,7 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             # For the coordinator session, use the model resolved at startup
             # (from opencode.json). The coordinator has no TUI user, so
             # get_session_agent would detect the hub server's default.
+            session_model: dict[str, str] | None
             if (
                 COORDINATOR_SESSION_ID
                 and task.session_id == COORDINATOR_SESSION_ID
@@ -342,7 +337,9 @@ def injection_worker(shutdown_event: threading.Event) -> None:
                 session_agent = COORDINATOR_AGENT
             else:
                 session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
-                session_model = AGENT_MODELS.get(session_agent) if session_agent else None
+                session_model = (
+                    AGENT_MODELS.get(session_agent) if session_agent else None
+                )
             log.debug(
                 f"Worker resolving model for {task.session_id[:8]}: "
                 f"resolved={session_agent!r} "
