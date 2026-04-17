@@ -111,6 +111,15 @@ _CONFIG = _load_config_file()
 OPENCODE_PORT = _get_config_value("OPENCODE_PORT", ["hub", "port"], 4096, _CONFIG, int)
 OPENCODE_URL = f"http://127.0.0.1:{OPENCODE_PORT}"
 
+# Default model for the hub server.  Set via AGENT_HUB_MODEL env var or
+# config key "hub.model".  Format: "providerID/modelID".
+# Applied to the hub server via PATCH /config after startup so that
+# API-created sessions use this model instead of the server's built-in
+# default (claude).
+HUB_MODEL = _get_config_value(
+    "AGENT_HUB_MODEL", ["hub", "model"], "opencode/minimax-m2.5-free", _CONFIG, str
+)
+
 # =============================================================================
 # Coordinator Configuration
 # =============================================================================
