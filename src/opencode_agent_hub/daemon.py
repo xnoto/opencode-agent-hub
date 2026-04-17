@@ -58,6 +58,7 @@ import signal
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from watchdog.observers import Observer
@@ -314,7 +315,7 @@ Examples:
                 poll_coordinator_cost()
 
                 # Write Prometheus metrics file
-                METRICS_FILE.write_text(metrics.to_prometheus())
+                metrics.write_to_textfile(str(METRICS_FILE))
 
                 # Log summary
                 log.info(f"Metrics: {metrics.log_summary()}")
@@ -326,37 +327,24 @@ Examples:
     metrics.set_gauge("agent_hub_active_agents", len(agents))
     metrics.set_gauge("agent_hub_oriented_sessions", len(ORIENTED_SESSIONS))
 
-    # Start background threads
-    threads = [
-        threading.Thread(target=session_poller, name="session-poller", daemon=True),
-        threading.Thread(target=gc_worker, name="gc-worker", daemon=True),
-        threading.Thread(target=hub_monitor, name="hub-monitor", daemon=True),
-        threading.Thread(target=coordinator_monitor, name="coordinator-monitor", daemon=True),
-        threading.Thread(target=metrics_worker, name="metrics-worker", daemon=True),
-        threading.Thread(
-            target=lambda: message_worker(agents, shutdown_event),
-            name="message-worker",
-            daemon=True,
-        ),
-        threading.Thread(
-            target=lambda: session_worker(agents, shutdown_event),
-            name="session-worker",
-            daemon=True,
-        ),
-    ]
+    # Start background threads via ThreadPoolExecutor for graceful shutdown
+    num_workers = 5 + INJECTION_WORKERS + 2  # 5 service threads + injection + message/session
+    executor = ThreadPoolExecutor(max_workers=num_workers, thread_name_prefix="agent-hub")
 
-    # Start injection workers (pool for concurrent injections)
-    for i in range(INJECTION_WORKERS):
-        t = threading.Thread(
-            target=lambda: injection_worker(shutdown_event),
-            name=f"injection-worker-{i}",
-            daemon=True,
-        )
-        threads.append(t)
+    futures = []
+    futures.append(executor.submit(session_poller))
+    futures.append(executor.submit(gc_worker))
+    futures.append(executor.submit(hub_monitor))
+    futures.append(executor.submit(coordinator_monitor))
+    futures.append(executor.submit(metrics_worker))
+    futures.append(executor.submit(message_worker, agents, shutdown_event))
+    futures.append(executor.submit(session_worker, agents, shutdown_event))
 
-    for t in threads:
-        t.start()
-    log.info(f"Started {len(threads)} background threads ({INJECTION_WORKERS} injection workers)")
+    # Submit injection workers (pool for concurrent injections)
+    for _i in range(INJECTION_WORKERS):
+        futures.append(executor.submit(injection_worker, shutdown_event))
+
+    log.info(f"Started {len(futures)} background threads ({INJECTION_WORKERS} injection workers)")
 
     try:
         # Main thread just waits - all work happens in threads and watchdog callbacks
@@ -367,9 +355,8 @@ Examples:
     finally:
         shutdown_event.set()
         observer.stop()
-        # Wait for threads to finish
-        for t in threads:
-            t.join(timeout=2)
+        # Wait for in-progress work to complete (threads check shutdown_event)
+        executor.shutdown(wait=True)
         stop_coordinator()
         stop_hub_server()
     observer.join()

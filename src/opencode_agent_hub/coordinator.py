@@ -505,7 +505,13 @@ def start_coordinator() -> bool:
 
     config.log.info("Starting coordinator session...")
 
-    # Read and log the coordinator model from opencode.json
+    # Resolve the coordinator's model from opencode.json.
+    # The "model" field (e.g. "opencode/minimax-m2.5-free") specifies the
+    # exact model to use and takes priority. The "agent" field (e.g. "minimax")
+    # is used for the prompt_async agent label; if no explicit model is given
+    # we fall back to looking up the agent in AGENT_MODELS.
+    coordinator_model_override: dict[str, str] | None = None
+    agent_name: str | None = None
     try:
         opencode_json_path = config.COORDINATOR_DIR / "opencode.json"
         if opencode_json_path.exists():
@@ -513,16 +519,32 @@ def start_coordinator() -> bool:
 
             with open(opencode_json_path) as f:
                 opencode_config = json.load(f)
-            model = opencode_config.get("model", "default")
-            config.log.info(f"Coordinator model: {model}")
-    except Exception as e:
-        config.log.debug(f"Could not read coordinator model from opencode.json: {e}")
+            agent_name = opencode_config.get("agent")
+            model_str = opencode_config.get("model", "")
 
-    # Create session via HTTP API instead of CLI to inherit global permissions
+            # Prefer explicit model field (allows specifying a free/specific model)
+            if model_str and "/" in model_str:
+                provider_id, model_id = model_str.split("/", 1)
+                coordinator_model_override = {
+                    "providerID": provider_id,
+                    "modelID": model_id,
+                }
+                config.log.info(f"Coordinator agent: {agent_name or 'n/a'}, model: {model_str}")
+            elif agent_name and agent_name in config.AGENT_MODELS:
+                # Fall back to agent→model lookup when no explicit model
+                coordinator_model_override = config.AGENT_MODELS[agent_name]
+                config.log.info(
+                    f"Coordinator agent: {agent_name}, "
+                    f"model: {coordinator_model_override['providerID']}/{coordinator_model_override['modelID']}"
+                )
+            else:
+                config.log.info(f"Coordinator agent: {agent_name or 'n/a'}, model: default")
+    except Exception as e:
+        config.log.debug(f"Could not read coordinator config from opencode.json: {e}")
+
+    # Create session via HTTP API.
     try:
         coordinator_title = config._get_coordinator_title()
-        # Note: Model is set in coordinator's opencode.json, not via API
-        # The API model parameter is not always respected by OpenCode
         resp = requests.post(
             f"{config.OPENCODE_URL}/session",
             json={
@@ -546,6 +568,8 @@ def start_coordinator() -> bool:
         config.log.info(f"Created coordinator session via API: {session_id[:8]}")
 
         config.COORDINATOR_SESSION_ID = session_id
+        config.COORDINATOR_MODEL = coordinator_model_override
+        config.COORDINATOR_AGENT = agent_name or config.DEFAULT_AGENT
         config.ORIENTED_SESSIONS.add(session_id)
 
         # Register coordinator as an agent so other agents can message it
@@ -572,13 +596,20 @@ def start_coordinator() -> bool:
         # Send bootstrap prompt synchronously before waiting for READY.
         ready_after_ms = int(time.time() * 1000)
 
-        if not inject_message_sync(session_id, config.COORDINATOR_BOOTSTRAP_PROMPT):
+        if not inject_message_sync(
+            session_id,
+            config.COORDINATOR_BOOTSTRAP_PROMPT,
+            model=coordinator_model_override,
+            agent=agent_name or config.DEFAULT_AGENT,
+        ):
             config.log.error(
                 f"Failed to inject coordinator bootstrap prompt for session {session_id[:8]}"
             )
             with suppress(requests.RequestException):
                 requests.delete(f"{config.OPENCODE_URL}/session/{session_id}", timeout=5)
             config.COORDINATOR_SESSION_ID = None
+            config.COORDINATOR_MODEL = None
+            config.COORDINATOR_AGENT = None
             config.ORIENTED_SESSIONS.discard(session_id)
             if agent_file.exists():
                 agent_file.unlink()
@@ -601,6 +632,8 @@ def start_coordinator() -> bool:
                 with suppress(requests.RequestException):
                     requests.delete(f"{config.OPENCODE_URL}/session/{session_id}", timeout=5)
                 config.COORDINATOR_SESSION_ID = None
+                config.COORDINATOR_MODEL = None
+                config.COORDINATOR_AGENT = None
                 config.ORIENTED_SESSIONS.discard(session_id)
                 if agent_file.exists():
                     agent_file.unlink()
@@ -635,6 +668,8 @@ def stop_coordinator() -> None:
         except Exception as e:
             config.log.warning(f"Failed to kill coordinator session: {e}")
         config.COORDINATOR_SESSION_ID = None
+        config.COORDINATOR_MODEL = None
+        config.COORDINATOR_AGENT = None
 
         # Clean up coordinator agent file
         try:
@@ -730,12 +765,11 @@ def poll_coordinator_cost() -> None:
     )
 
     # Update metrics (set absolute values, not increments)
-    with metrics._lock:
-        metrics._counters["agent_hub_coordinator_tokens_input"] = total_input
-        metrics._counters["agent_hub_coordinator_tokens_output"] = total_output
-        metrics._counters["agent_hub_coordinator_tokens_cache_read"] = total_cache_read
-        metrics._counters["agent_hub_coordinator_tokens_cache_write"] = total_cache_write
-        metrics._counters["agent_hub_coordinator_messages_total"] = assistant_count
+    metrics.set_counter("agent_hub_coordinator_tokens_input", total_input)
+    metrics.set_counter("agent_hub_coordinator_tokens_output", total_output)
+    metrics.set_counter("agent_hub_coordinator_tokens_cache_read", total_cache_read)
+    metrics.set_counter("agent_hub_coordinator_tokens_cache_write", total_cache_write)
+    metrics.set_counter("agent_hub_coordinator_messages_total", assistant_count)
     metrics.set_gauge("agent_hub_coordinator_estimated_cost_usd", round(estimated_cost, 6))
 
     config.log.debug(

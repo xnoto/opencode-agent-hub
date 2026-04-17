@@ -6,7 +6,9 @@ Build-Depends: debhelper-compat (= 13),
                dh-python,
                python3-all (>= 3.11),
                python3-hatchling,
-               python3-pytest,
+               python3-prometheus-client,
+               python3-requests,
+               python3-watchdog,
                pybuild-plugin-pyproject
 Standards-Version: 4.6.2
 Homepage: https://github.com/xnoto/opencode-agent-hub
@@ -16,6 +18,8 @@ Package: opencode-agent-hub
 Architecture: all
 Depends: ${python3:Depends},
          ${misc:Depends},
+         python3-pydantic (>= 2.0) | python3-pydantic,
+         python3-prometheus-client,
          python3-requests,
          python3-watchdog
 Description: Multi-agent coordination daemon and tools for OpenCode

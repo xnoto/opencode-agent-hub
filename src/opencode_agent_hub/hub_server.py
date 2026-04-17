@@ -15,6 +15,7 @@ import requests
 
 from opencode_agent_hub.config import (
     DAEMON_LOG_DIR,
+    HUB_MODEL,
     HUB_SERVER_PID_FILE,
     HUB_STDERR_LOG_FILE,
     OPENCODE_PORT,
@@ -156,6 +157,7 @@ def start_hub_server() -> subprocess.Popen | None:
             if is_hub_server_running():
                 log.info(f"Hub server started (PID {_hub_server_process.pid})")
                 HUB_SERVER_PID_FILE.write_text(str(_hub_server_process.pid))
+                _apply_hub_model()
                 return _hub_server_process
 
         log.error("Hub server failed to start within timeout")
@@ -167,6 +169,29 @@ def start_hub_server() -> subprocess.Popen | None:
     except Exception as e:
         log.error(f"Failed to start hub server: {e}")
         return None
+
+
+def _apply_hub_model() -> None:
+    """Set the hub server's default model via PATCH /config.
+
+    Without this, the hub server defaults to claude for API-created sessions.
+    The model is configured via AGENT_HUB_MODEL env var or hub.model config key.
+    """
+    if not HUB_MODEL or "/" not in HUB_MODEL:
+        return
+
+    try:
+        resp = requests.patch(
+            f"{OPENCODE_URL}/config",
+            json={"model": HUB_MODEL},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            log.info(f"Hub server default model set to {HUB_MODEL}")
+        else:
+            log.warning(f"Failed to set hub model: HTTP {resp.status_code} {resp.text[:200]}")
+    except Exception as e:
+        log.warning(f"Failed to set hub model: {e}")
 
 
 def stop_hub_server() -> None:

@@ -64,7 +64,8 @@ jobs:
       - name: Install build dependencies
         run: |
           dnf install -y rpm-build python3-devel python3-pip python3-wheel \
-            python3-hatchling python3-requests python3-watchdog
+            python3-hatchling python3-pydantic python3-prometheus_client \
+            python3-requests python3-watchdog
 
       - name: Create source tarball
         run: |
@@ -107,7 +108,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential debhelper dh-python python3-all \
             python3-hatchling pybuild-plugin-pyproject devscripts \
-            python3-requests python3-watchdog python3-pytest
+            python3-prometheus-client \
+            python3-requests python3-watchdog
 
       - name: Prepare debian directory
         run: |
@@ -118,7 +120,9 @@ jobs:
 
       - name: Build DEB
         run: |
-          dpkg-buildpackage -us -uc -b
+          # Skip tests during package build — they run in CI separately.
+          # pydantic v2 and other pip deps aren't available as system packages.
+          DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -us -uc -b
           mkdir -p debs
           find .. -maxdepth 1 -name "*.deb" -exec cp {} debs/ \;
           ls -la debs/

@@ -26,10 +26,15 @@ from opencode_agent_hub.config import (
     log,
 )
 from opencode_agent_hub.metrics import metrics
-from opencode_agent_hub.models import InjectionTask, MessageTask, SessionTask
+from opencode_agent_hub.models import InjectionTask, MessageSchema, MessageTask, SessionTask
 from opencode_agent_hub.persistence import check_thread_resolution, ensure_thread_id, load_agents
 from opencode_agent_hub.rate_limiting import check_rate_limit, record_message_sent
-from opencode_agent_hub.sessions import find_sessions_for_agent, format_notification, get_sessions
+from opencode_agent_hub.sessions import (
+    find_sessions_for_agent,
+    format_notification,
+    get_session_agent,
+    get_sessions,
+)
 from opencode_agent_hub.utils import atomic_write_json, validate_path_within_dir
 
 # Sender ID used for hub-originated feedback messages.
@@ -42,40 +47,34 @@ _message_queue: queue.Queue[MessageTask] = queue.Queue()
 _session_queue: queue.Queue[SessionTask] = queue.Queue()
 
 
-_REQUIRED_FIELDS: dict[str, type] = {"from": str, "to": str, "content": str}
-_VALID_TYPES = {"message", "completion", "delivery-status"}
-_VALID_PRIORITIES = {"normal", "urgent"}
-
-
 def validate_message(msg: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate message schema: required fields, types, and enum values.
 
+    Uses :class:`MessageSchema` (pydantic) for validation.
     Returns (is_valid, list_of_errors).
     """
-    errors: list[str] = []
+    from pydantic import ValidationError
 
-    for field, expected_type in _REQUIRED_FIELDS.items():
-        value = msg.get(field)
-        if value is None or (isinstance(value, str) and not value.strip()):
-            errors.append(f"Missing or empty required field: '{field}'")
-        elif not isinstance(value, expected_type):
-            errors.append(
-                f"Field '{field}' must be {expected_type.__name__}, got {type(value).__name__}"
-            )
+    # Map 'from' -> 'from_' for the pydantic model (reserved keyword).
+    data = {("from_" if k == "from" else k): v for k, v in msg.items()}
 
-    msg_type = msg.get("type")
-    if msg_type is not None and msg_type not in _VALID_TYPES:
-        errors.append(
-            f"Invalid type '{msg_type}', must be one of: {', '.join(sorted(_VALID_TYPES))}"
-        )
+    try:
+        MessageSchema(**data)
+    except ValidationError as exc:
+        errors: list[str] = []
+        for err in exc.errors():
+            # Use the custom message from field_validator when available;
+            # otherwise build a human-readable string from the pydantic error.
+            ctx_msg = err.get("ctx", {}).get("error")
+            if ctx_msg:
+                errors.append(str(ctx_msg))
+            else:
+                loc = err.get("loc", ())
+                field = ".".join("from" if str(p) == "from_" else str(p) for p in loc)
+                errors.append(f"Field '{field}': {err['msg']}")
+        return (False, errors)
 
-    priority = msg.get("priority")
-    if priority is not None and priority not in _VALID_PRIORITIES:
-        errors.append(
-            f"Invalid priority '{priority}', must be one of: {', '.join(sorted(_VALID_PRIORITIES))}"
-        )
-
-    return (len(errors) == 0, errors)
+    return (True, [])
 
 
 def _send_delivery_feedback(
@@ -183,16 +182,75 @@ def session_worker(agents: dict[str, dict], shutdown_event: threading.Event) -> 
             _session_queue.task_done()
 
 
-def inject_message_sync(session_id: str, text: str) -> bool:
+def inject_context_sync(session_id: str, text: str) -> bool:
+    """Add a message to a session's context without triggering LLM invocation.
+
+    Uses /message endpoint which adds to context only. This is used for
+    orientation messages where we don't want to force a model or wake the
+    session — the user's next interaction will use whatever agent they chose.
+    """
+    payload = {
+        "parts": [{"type": "text", "text": text}],
+    }
+
+    for attempt in range(INJECTION_RETRIES):
+        try:
+            resp = requests.post(
+                f"{OPENCODE_URL}/session/{session_id}/message",
+                json=payload,
+                timeout=INJECTION_TIMEOUT,
+            )
+            if resp.status_code in (200, 204):
+                log.info(f"Added context to session {session_id[:8]}... (/message)")
+                metrics.inc("agent_hub_injections_total")
+                return True
+            else:
+                body = resp.text[:200] if resp.text else "(empty)"
+                log.warning(
+                    f"Context injection attempt {attempt + 1} failed: {resp.status_code} {body}"
+                )
+        except requests.RequestException as e:
+            log.warning(f"Context injection attempt {attempt + 1} failed: {e}")
+
+        if attempt < INJECTION_RETRIES - 1:
+            metrics.inc("agent_hub_injections_retried_total")
+            time.sleep(0.5 * (attempt + 1))
+
+    log.error(
+        f"Context injection failed after {INJECTION_RETRIES} attempts for session {session_id[:8]}"
+    )
+    metrics.inc("agent_hub_injections_failed_total")
+    return False
+
+
+def inject_message_sync(
+    session_id: str,
+    text: str,
+    *,
+    model: dict[str, str] | None = None,
+    agent: str | None = None,
+) -> bool:
     """Inject message into OpenCode session (synchronous, with retries).
 
     Uses /prompt_async endpoint which triggers LLM invocation even when idle.
     The /message endpoint with noReply:false only adds to context without
     actually invoking the LLM when the session is idle.
+
+    Args:
+        model: Model override as {"providerID": "...", "modelID": "..."}.
+               Resolved from AGENT_MODELS by the injection_worker.
+        agent: Agent name (e.g. "gpt", "kimi") to tag the injected message
+               with.  Without this the hub server labels messages as "claude".
     """
-    payload = {
+    payload: dict[str, Any] = {
         "parts": [{"type": "text", "text": text}],
     }
+    if model:
+        payload["model"] = model
+    if agent:
+        payload["agent"] = agent
+
+    log.debug(f"Injection payload for {session_id[:8]}: model={model}")
 
     for attempt in range(INJECTION_RETRIES):
         try:
@@ -209,7 +267,8 @@ def inject_message_sync(session_id: str, text: str) -> bool:
                 metrics.inc("agent_hub_injections_total")
                 return True
             else:
-                log.warning(f"Injection attempt {attempt + 1} failed: {resp.status_code}")
+                body = resp.text[:200] if resp.text else "(empty)"
+                log.warning(f"Injection attempt {attempt + 1} failed: {resp.status_code} {body}")
         except requests.RequestException as e:
             log.warning(f"Injection attempt {attempt + 1} failed: {e}")
 
@@ -253,7 +312,40 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             continue
 
         try:
-            success = inject_message_sync(task.session_id, task.text)
+            # Detect the session's active agent, then look up the model.
+            # For sessions where the agent can't be detected (and DEFAULT_AGENT
+            # is None), we skip the agent label and let the hub server's
+            # default model (set via HUB_MODEL at startup) handle it.
+            from opencode_agent_hub.config import (
+                AGENT_MODELS,
+                COORDINATOR_AGENT,
+                COORDINATOR_MODEL,
+                COORDINATOR_SESSION_ID,
+                DEFAULT_AGENT,
+            )
+
+            # For the coordinator session, use the model resolved at startup
+            # (from opencode.json). The coordinator has no TUI user, so
+            # get_session_agent would detect the hub server's default.
+            session_model: dict[str, str] | None
+            if (
+                COORDINATOR_SESSION_ID
+                and task.session_id == COORDINATOR_SESSION_ID
+                and COORDINATOR_MODEL
+            ):
+                session_model = COORDINATOR_MODEL
+                session_agent = COORDINATOR_AGENT
+            else:
+                session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
+                session_model = AGENT_MODELS.get(session_agent) if session_agent else None
+            log.debug(
+                f"Worker resolving model for {task.session_id[:8]}: "
+                f"resolved={session_agent!r} "
+                f"model={session_model} AGENT_MODELS_keys={list(AGENT_MODELS.keys())}"
+            )
+            success = inject_message_sync(
+                task.session_id, task.text, model=session_model, agent=session_agent
+            )
             if not success and task.original_sender:
                 # Injection failed after retries — notify the original sender
                 metrics.inc("agent_hub_messages_delivery_failed_total")

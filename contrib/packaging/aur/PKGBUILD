@@ -5,9 +5,11 @@ pkgrel=1
 pkgdesc="Multi-agent coordination daemon and tools for OpenCode"
 arch=('any')
 url="https://github.com/xnoto/opencode-agent-hub"
-license=('MIT')
+license=('AGPL-3.0-only')
 depends=(
     'python>=3.11'
+    'python-pydantic'
+    'python-prometheus_client'
     'python-requests'
     'python-watchdog'
 )

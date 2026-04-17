@@ -130,23 +130,28 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
 
 ```json
 {
-  "opencode_port": 4096,
+  "hub": {
+    "port": 4096,
+    "model": "opencode/minimax-m2.5-free"
+  },
   "log_level": "INFO",
   "rate_limit": {
     "enabled": false,
-    "max_messages": 10,
-    "window_seconds": 300,
-    "cooldown_seconds": 0
+    "max_messages_per_window": 100,
+    "window_seconds": 3600,
+    "cooldown_seconds": 5
   },
   "coordinator": {
     "enabled": true,
     "directory": "~/.agent-hub/coordinator",
     "agents_md": ""
   },
-  "gc": { "message_ttl_seconds": 3600, "agent_stale_seconds": 3600, "interval_seconds": 60 },
-  "session": { "poll_seconds": 5, "cache_ttl": 10 },
-  "injection": { "workers": 4, "retries": 3, "timeout": 5 },
-  "metrics_interval": 30
+  "agent": { "stale_seconds": 600 },
+  "message": { "ttl_seconds": 3600 },
+  "poll": { "session_seconds": 5, "gc_seconds": 60, "metrics_seconds": 60 },
+  "cache": { "session_ttl_seconds": 5 },
+  "injection": { "workers": 3, "retries": 3, "timeout_seconds": 30 },
+  "orientation": { "retry_delay_seconds": 30, "retry_max": 5 }
 }
 ```
 
@@ -155,25 +160,29 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENCODE_PORT` | `4096` | Hub server port |
+| `AGENT_HUB_MODEL` | `opencode/minimax-m2.5-free` | Hub server default model (`provider/model`) |
+| `AGENT_HUB_DEFAULT_AGENT` | (none) | Agent name for undetectable sessions |
 | `AGENT_HUB_DAEMON_LOG_LEVEL` | `INFO` | Log level |
-| `AGENT_HUB_MESSAGE_TTL` | `3600` | Message TTL (seconds) |
-| `AGENT_HUB_AGENT_STALE` | `3600` | Agent stale threshold (seconds) |
-| `AGENT_HUB_GC_INTERVAL` | `60` | GC interval (seconds) |
-| `AGENT_HUB_SESSION_POLL` | `5` | Session poll interval (seconds) |
-| `AGENT_HUB_SESSION_CACHE_TTL` | `10` | Session cache TTL (seconds) |
-| `AGENT_HUB_INJECTION_WORKERS` | `4` | Injection worker threads |
+| `AGENT_HUB_MESSAGE_TTL_SECONDS` | `3600` | Message TTL (seconds) |
+| `AGENT_HUB_AGENT_STALE_SECONDS` | `600` | Agent stale threshold (seconds) |
+| `AGENT_HUB_SESSION_POLL_SECONDS` | `5` | Session poll interval (seconds) |
+| `AGENT_HUB_GC_INTERVAL_SECONDS` | `60` | GC interval (seconds) |
+| `AGENT_HUB_METRICS_INTERVAL` | `60` | Metrics write interval (seconds) |
+| `AGENT_HUB_SESSION_CACHE_TTL` | `5` | Session cache TTL (seconds) |
+| `AGENT_HUB_INJECTION_WORKERS` | `3` | Injection worker threads |
 | `AGENT_HUB_INJECTION_RETRIES` | `3` | Injection retry attempts |
-| `AGENT_HUB_INJECTION_TIMEOUT` | `5` | Injection timeout (seconds) |
-| `AGENT_HUB_METRICS_INTERVAL` | `30` | Metrics write interval (seconds) |
+| `AGENT_HUB_INJECTION_TIMEOUT` | `30` | Injection timeout (seconds) |
+| `AGENT_HUB_ORIENTATION_RETRY_DELAY` | `30` | Orientation retry delay (seconds) |
+| `AGENT_HUB_ORIENTATION_RETRY_MAX` | `5` | Max orientation retries |
 
 ### Rate Limiting
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_HUB_RATE_LIMIT` | `false` | Enable rate limiting |
-| `AGENT_HUB_RATE_LIMIT_MAX` | `10` | Max messages per agent per window |
-| `AGENT_HUB_RATE_LIMIT_WINDOW` | `300` | Window size (seconds) |
-| `AGENT_HUB_RATE_LIMIT_COOLDOWN` | `0` | Min seconds between messages |
+| `AGENT_HUB_RATE_LIMIT_ENABLED` | `false` | Enable rate limiting |
+| `AGENT_HUB_RATE_LIMIT_MAX_MESSAGES` | `100` | Max messages per agent per window |
+| `AGENT_HUB_RATE_LIMIT_WINDOW_SECONDS` | `3600` | Window size (seconds) |
+| `AGENT_HUB_RATE_LIMIT_COOLDOWN_SECONDS` | `5` | Min seconds between messages |
 
 ### Coordinator
 
@@ -184,19 +193,12 @@ The coordinator is a dedicated OpenCode session that introduces agents to each o
 | `AGENT_HUB_COORDINATOR` | `true` | Enable coordinator |
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Coordinator working directory |
 | `AGENT_HUB_COORDINATOR_PRESERVE_LOCAL_AGENTS_MD` | `false` | Keep existing AGENTS.md on restart |
-| `AGENT_HUB_COORDINATOR_READY_TIMEOUT` | `20` | Bootstrap ready timeout (seconds) |
+| `AGENT_HUB_COORDINATOR_READY_TIMEOUT` | `60` | Bootstrap ready timeout (seconds) |
 | `AGENT_HUB_COORDINATOR_STRICT_READY` | `false` | Require exact `READY` acknowledgment |
 | `AGENT_HUB_COORDINATOR_BOOTSTRAP_REQUIRED` | `false` | Fail startup if bootstrap times out |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom AGENTS.md path |
 
-The coordinator model is set in `~/.agent-hub/coordinator/opencode.json` (default: `opencode/minimax-m2.5-free`).
-
-Custom coordinator instructions are searched in order:
-1. `AGENT_HUB_COORDINATOR_AGENTS_MD` env var
-2. `~/.config/agent-hub-daemon/AGENTS.md` (or `COORDINATOR.md`)
-3. Package template (`contrib/coordinator/AGENTS.md`)
-4. `/usr/local/share/opencode-agent-hub/coordinator/AGENTS.md`
-5. Auto-generated minimal default
+The coordinator model is configured in `opencode.json` within the coordinator directory (default: `opencode/minimax-m2.5-free`). Custom coordinator instructions (`AGENTS.md`) are auto-detected from the config directory, package template, or system paths — override with `AGENT_HUB_COORDINATOR_AGENTS_MD`.
 
 ## Message Format
 
@@ -206,7 +208,7 @@ Messages are JSON files in `~/.agent-hub/messages/`:
 {
   "from": "agent-id",
   "to": "target-agent-id",
-  "type": "message|completion|delivery-status",
+  "type": "message|completion|delivery-status|task|question|context|error",
   "content": "Message content",
   "priority": "normal|urgent",
   "threadId": "auto-generated-or-provided",
@@ -214,9 +216,7 @@ Messages are JSON files in `~/.agent-hub/messages/`:
 }
 ```
 
-Required fields: `from`, `to`, `content`. The hub validates message schema on receipt and rejects malformed messages.
-
-**Delivery feedback**: When a message is delivered (or delivery fails), the hub sends a `delivery-status` message back to the original sender with the outcome.
+Required fields: `from`, `to`, `content`. Messages are validated with pydantic on receipt; malformed messages are rejected with delivery feedback to the sender.
 
 ## Directory Structure
 
@@ -226,7 +226,7 @@ Required fields: `from`, `to`, `content`. The hub validates message schema on re
 ├── messages/               # Pending messages
 │   └── archive/            # Processed messages
 ├── threads/                # Conversation threads
-├── metrics.prom            # Prometheus metrics
+├── metrics.prom            # Prometheus metrics (prometheus_client format)
 ├── oriented_sessions.json  # Orientation cache
 └── session_agents.json     # Session-to-agent mapping
 
@@ -236,15 +236,7 @@ Required fields: `from`, `to`, `content`. The hub validates message schema on re
 
 ## Development
 
-```bash
-uv sync --all-extras
-uv run ruff check .
-uv run ruff format .
-uv run mypy src/
-uv run pytest
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for integration testing and architecture details.
+Install with `uv sync --all-extras`. Pre-commit hooks enforce linting, formatting, type checking, and tests automatically. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow. See [AGENTS.md](AGENTS.md) for injection pipeline internals and test-writing conventions.
 
 ## Acknowledgments
 
@@ -253,4 +245,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for integration testing and architecture 
 
 ## License
 
-MIT - See [LICENSE](LICENSE) for details.
+AGPL-3.0 - See [LICENSE](LICENSE) for details.

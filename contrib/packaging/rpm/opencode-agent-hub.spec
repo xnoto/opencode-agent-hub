@@ -5,7 +5,7 @@ Name:           opencode-agent-hub
 Version:        0.4.0
 Release:        1%{?dist}
 Summary:        Multi-agent coordination daemon and tools for OpenCode
-License:        MIT
+License:        AGPL-3.0-only
 URL:            https://github.com/xnoto/opencode-agent-hub
 Source0:        opencode-agent-hub-%{version}.tar.gz
 BuildArch:      noarch
@@ -16,6 +16,8 @@ BuildRequires:  python3-wheel
 BuildRequires:  python3-hatchling
 
 Requires:       python3 >= 3.11
+Requires:       python3-pydantic
+Requires:       python3-prometheus_client
 Requires:       python3-requests
 Requires:       python3-watchdog
 

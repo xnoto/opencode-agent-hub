@@ -111,6 +111,15 @@ _CONFIG = _load_config_file()
 OPENCODE_PORT = _get_config_value("OPENCODE_PORT", ["hub", "port"], 4096, _CONFIG, int)
 OPENCODE_URL = f"http://127.0.0.1:{OPENCODE_PORT}"
 
+# Default model for the hub server.  Set via AGENT_HUB_MODEL env var or
+# config key "hub.model".  Format: "providerID/modelID".
+# Applied to the hub server via PATCH /config after startup so that
+# API-created sessions use this model instead of the server's built-in
+# default (claude).
+HUB_MODEL = _get_config_value(
+    "AGENT_HUB_MODEL", ["hub", "model"], "opencode/minimax-m2.5-free", _CONFIG, str
+)
+
 # =============================================================================
 # Coordinator Configuration
 # =============================================================================
@@ -261,6 +270,18 @@ SESSION_CACHE_TTL = _get_config_value(
 )
 
 # =============================================================================
+# Agent/Model Configuration
+# =============================================================================
+
+# Default agent name for injections when the session's agent can't be detected.
+# Set via env var or config file. When empty/None, injections rely on the hub
+# server's default model (set via HUB_MODEL) and omit the agent label.
+# Only set this if you want to force a specific agent for undetectable sessions.
+DEFAULT_AGENT: str | None = _get_config_value(
+    "AGENT_HUB_DEFAULT_AGENT", ["agent", "default"], None, _CONFIG, str
+)
+
+# =============================================================================
 # Orientation Configuration
 # =============================================================================
 
@@ -299,8 +320,20 @@ ORIENTATION_PENDING: dict[str, dict] = {}
 _sessions_cache: list[dict] = []
 _sessions_cache_time: float = 0
 
-# Coordinator session ID
+# Coordinator session ID, model override, and agent name (set at coordinator startup)
 COORDINATOR_SESSION_ID: str | None = None
+COORDINATOR_MODEL: dict[str, str] | None = None
+COORDINATOR_AGENT: str | None = None
+
+# Agent→model lookup: maps agent name to {"providerID": ..., "modelID": ...}.
+# Populated by preflight from the resolved OpenCode config.
+AGENT_MODELS: dict[str, dict[str, str]] = {}
+
+# Default model used for injections when the session's agent can't be detected
+# (e.g. brand new sessions with no assistant messages). Populated by preflight
+# from the first non-disabled agent in the OpenCode config, or overridden via
+# AGENT_HUB_DEFAULT_AGENT env var.
+DEFAULT_INJECTION_MODEL: dict[str, str] | None = None
 
 # Daemon start time - only orient sessions created after this
 DAEMON_START_TIME_MS: int = int(time.time() * 1000)

@@ -85,6 +85,7 @@ def test_daemon_orients_new_session_once(test_db: Path, tmp_path: Path):
 
     with (
         mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
+        mock.patch("opencode_agent_hub.sessions.get_session_agent", return_value="gpt"),
         mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):
@@ -171,6 +172,7 @@ def test_orient_session_thread_safe():
 
     with (
         mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
+        mock.patch("opencode_agent_hub.sessions.get_session_agent", return_value="gpt"),
         mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):
@@ -253,6 +255,7 @@ def test_orient_session_idempotent():
 
     with (
         mock.patch("opencode_agent_hub.messaging.inject_message", side_effect=mock_inject),
+        mock.patch("opencode_agent_hub.sessions.get_session_agent", return_value="gpt"),
         mock.patch("opencode_agent_hub.persistence.save_oriented_sessions"),
         mock.patch("opencode_agent_hub.config.COORDINATOR_SESSION_ID", None),
     ):
