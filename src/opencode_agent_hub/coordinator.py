@@ -529,9 +529,7 @@ def start_coordinator() -> bool:
                     "providerID": provider_id,
                     "modelID": model_id,
                 }
-                config.log.info(
-                    f"Coordinator agent: {agent_name or 'n/a'}, model: {model_str}"
-                )
+                config.log.info(f"Coordinator agent: {agent_name or 'n/a'}, model: {model_str}")
             elif agent_name and agent_name in config.AGENT_MODELS:
                 # Fall back to agent→model lookup when no explicit model
                 coordinator_model_override = config.AGENT_MODELS[agent_name]

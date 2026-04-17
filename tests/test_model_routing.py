@@ -8,14 +8,12 @@ and that the system works for users with any agent configuration.
 
 import queue
 import sqlite3
-import threading
 from pathlib import Path
 from unittest import mock
 
 from opencode_agent_hub import config
-from opencode_agent_hub.messaging import inject_message_sync, injection_worker
+from opencode_agent_hub.messaging import inject_message_sync
 from opencode_agent_hub.sessions import get_session_agent
-
 
 # ---------------------------------------------------------------------------
 # get_session_agent
@@ -186,7 +184,6 @@ def test_inject_message_sync_omits_model_when_none() -> None:
 
 def _run_worker_with_task(task, **config_overrides):
     """Helper: run injection_worker for a single task and capture the inject call."""
-    from opencode_agent_hub.models import InjectionTask
 
     inject_calls = []
 
@@ -194,9 +191,7 @@ def _run_worker_with_task(task, **config_overrides):
         inject_calls.append({"session_id": session_id, "model": model, "agent": agent})
         return True
 
-    shutdown = threading.Event()
-
-    # Prepare a queue with one task then signal shutdown
+    # Prepare a queue with one task
     q = queue.Queue()
     q.put(task)
 
@@ -231,7 +226,11 @@ def _run_worker_with_task(task, **config_overrides):
             AGENT_MODELS = defaults["AGENT_MODELS"]
             DEFAULT_AGENT = defaults["DEFAULT_AGENT"]
 
-            if COORDINATOR_SESSION_ID and t.session_id == COORDINATOR_SESSION_ID and COORDINATOR_MODEL:
+            if (
+                COORDINATOR_SESSION_ID
+                and t.session_id == COORDINATOR_SESSION_ID
+                and COORDINATOR_MODEL
+            ):
                 session_model = COORDINATOR_MODEL
                 session_agent = COORDINATOR_AGENT
             else:
@@ -291,9 +290,7 @@ def test_worker_detected_agent_resolves_model() -> None:
         return True
 
     with (
-        mock.patch(
-            "opencode_agent_hub.messaging.get_session_agent", return_value="kimi"
-        ),
+        mock.patch("opencode_agent_hub.messaging.get_session_agent", return_value="kimi"),
         mock.patch("opencode_agent_hub.messaging.inject_message_sync", side_effect=capture_inject),
     ):
         # Simulate worker logic directly

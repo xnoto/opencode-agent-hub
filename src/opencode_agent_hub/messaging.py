@@ -333,7 +333,11 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             # For the coordinator session, use the model resolved at startup
             # (from opencode.json). The coordinator has no TUI user, so
             # get_session_agent would detect the hub server's default.
-            if COORDINATOR_SESSION_ID and task.session_id == COORDINATOR_SESSION_ID and COORDINATOR_MODEL:
+            if (
+                COORDINATOR_SESSION_ID
+                and task.session_id == COORDINATOR_SESSION_ID
+                and COORDINATOR_MODEL
+            ):
                 session_model = COORDINATOR_MODEL
                 session_agent = COORDINATOR_AGENT
             else:
