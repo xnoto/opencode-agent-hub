@@ -547,10 +547,31 @@ Multiple OpenCode sessions in the same directory each get a unique agent identit
 
 Daemon workflow (coordinated across modules):
 1. **sessions.py**: Polls SQLite DB for new sessions (primary discovery mechanism)
-2. **messaging.py**: Detects new messages via watchdog on `~/.agent-hub/messages/`
-3. **messaging.py**: Looks up target agent's OpenCode session (by session ID, not directory)
-4. **messaging.py**: Injects message via OpenCode HTTP API (`prompt_async`)
-5. **persistence.py**: Marks message as delivered
+2. **sessions.py**: Detects session agent from **first user message** in SQLite (not assistant — see below)
+3. **messaging.py**: Detects new messages via watchdog on `~/.agent-hub/messages/`
+4. **messaging.py**: Looks up target agent's OpenCode session (by session ID, not directory)
+5. **messaging.py**: Resolves model from `AGENT_MODELS` lookup, passes both `model` and `agent` on `prompt_async`
+6. **persistence.py**: Marks message as delivered
+
+### Agent Detection Pitfalls
+
+When the daemon injects a message into a session, it must use the correct model and agent label. Getting this wrong causes the session to switch providers (e.g., from GPT to Claude) or show incorrect agent labels in the UI.
+
+**Critical invariants:**
+
+1. **Query user messages, not assistant messages.** The hub server auto-creates assistant messages with `agent='claude'` on session creation. Only user messages (from the TUI) carry the real agent set by `--agent`.
+
+2. **Query the first user message (ASC order).** Later user messages may be daemon-injected. The first one is always the real user's prompt.
+
+3. **Always pass both `model` and `agent` on `prompt_async`.** Without `model`, the hub server uses its default (which may be wrong). Without `agent`, messages get labeled as "claude" in the UI regardless of which model was actually called.
+
+4. **No hardcoded agent names.** End users may have completely different agent configurations. All fallbacks must use `DEFAULT_AGENT` (configurable, defaults to None).
+
+5. **Coordinator bypasses SQLite detection.** The coordinator session has no TUI user, so `get_session_agent` can't detect its agent. The model and agent are resolved from `opencode.json` at startup and stored in `config.COORDINATOR_MODEL` / `config.COORDINATOR_AGENT`.
+
+6. **In `opencode.json`, explicit `"model"` takes priority over `"agent"` lookup.** The `"agent"` field is for labeling; the `"model"` field specifies the exact provider/model to use. This allows targeting a free model while still setting an agent label.
+
+See `test_model_routing.py` for the 13 tests that enforce these invariants.
 
 ---
 
