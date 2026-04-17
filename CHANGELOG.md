@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.4.3...v1.5.0) (2026-04-17)
+
+
+### Features
+
+* model-aware injection, messaging reliability, and preflight improvements ([#81](https://github.com/xnoto/opencode-agent-hub/issues/81)) ([33897d6](https://github.com/xnoto/opencode-agent-hub/commit/33897d6e64966bab3bf982e8950a12cc6c7598c1))
+
 ## [Unreleased]
 
 ### Features
