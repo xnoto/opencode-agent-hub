@@ -229,7 +229,13 @@ def inject_context_sync(session_id: str, text: str) -> bool:
     return False
 
 
-def inject_message_sync(session_id: str, text: str, *, model: dict[str, str] | None = None) -> bool:
+def inject_message_sync(
+    session_id: str,
+    text: str,
+    *,
+    model: dict[str, str] | None = None,
+    agent: str | None = None,
+) -> bool:
     """Inject message into OpenCode session (synchronous, with retries).
 
     Uses /prompt_async endpoint which triggers LLM invocation even when idle.
@@ -239,12 +245,16 @@ def inject_message_sync(session_id: str, text: str, *, model: dict[str, str] | N
     Args:
         model: Model override as {"providerID": "...", "modelID": "..."}.
                Resolved from AGENT_MODELS by the injection_worker.
+        agent: Agent name (e.g. "gpt", "kimi") to tag the injected message
+               with.  Without this the hub server labels messages as "claude".
     """
     payload: dict[str, Any] = {
         "parts": [{"type": "text", "text": text}],
     }
     if model:
         payload["model"] = model
+    if agent:
+        payload["agent"] = agent
 
     log.debug(f"Injection payload for {session_id[:8]}: model={model}")
 
@@ -315,6 +325,7 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             # hub server pick its own default model.
             from opencode_agent_hub.config import (
                 AGENT_MODELS,
+                COORDINATOR_AGENT,
                 COORDINATOR_MODEL,
                 COORDINATOR_SESSION_ID,
                 DEFAULT_AGENT,
@@ -325,7 +336,7 @@ def injection_worker(shutdown_event: threading.Event) -> None:
             # get_session_agent would detect the hub server's default (claude).
             if COORDINATOR_SESSION_ID and task.session_id == COORDINATOR_SESSION_ID and COORDINATOR_MODEL:
                 session_model = COORDINATOR_MODEL
-                session_agent = "coordinator"
+                session_agent = COORDINATOR_AGENT or DEFAULT_AGENT
             else:
                 session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
                 session_model = AGENT_MODELS.get(session_agent)
@@ -334,7 +345,9 @@ def injection_worker(shutdown_event: threading.Event) -> None:
                 f"resolved={session_agent!r} "
                 f"model={session_model} AGENT_MODELS_keys={list(AGENT_MODELS.keys())}"
             )
-            success = inject_message_sync(task.session_id, task.text, model=session_model)
+            success = inject_message_sync(
+                task.session_id, task.text, model=session_model, agent=session_agent
+            )
             if not success and task.original_sender:
                 # Injection failed after retries — notify the original sender
                 metrics.inc("agent_hub_messages_delivery_failed_total")

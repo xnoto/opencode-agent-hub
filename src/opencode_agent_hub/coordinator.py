@@ -510,6 +510,7 @@ def start_coordinator() -> bool:
     # in the AGENT_MODELS map built at preflight. Fall back to parsing the
     # "model" field (e.g. "opencode/minimax-m2.5-free") directly.
     coordinator_model_override: dict[str, str] | None = None
+    agent_name: str | None = None
     try:
         opencode_json_path = config.COORDINATOR_DIR / "opencode.json"
         if opencode_json_path.exists():
@@ -566,6 +567,7 @@ def start_coordinator() -> bool:
 
         config.COORDINATOR_SESSION_ID = session_id
         config.COORDINATOR_MODEL = coordinator_model_override
+        config.COORDINATOR_AGENT = agent_name or config.DEFAULT_AGENT
         config.ORIENTED_SESSIONS.add(session_id)
 
         # Register coordinator as an agent so other agents can message it
@@ -593,7 +595,10 @@ def start_coordinator() -> bool:
         ready_after_ms = int(time.time() * 1000)
 
         if not inject_message_sync(
-            session_id, config.COORDINATOR_BOOTSTRAP_PROMPT, model=coordinator_model_override
+            session_id,
+            config.COORDINATOR_BOOTSTRAP_PROMPT,
+            model=coordinator_model_override,
+            agent=agent_name or config.DEFAULT_AGENT,
         ):
             config.log.error(
                 f"Failed to inject coordinator bootstrap prompt for session {session_id[:8]}"
@@ -602,6 +607,7 @@ def start_coordinator() -> bool:
                 requests.delete(f"{config.OPENCODE_URL}/session/{session_id}", timeout=5)
             config.COORDINATOR_SESSION_ID = None
             config.COORDINATOR_MODEL = None
+            config.COORDINATOR_AGENT = None
             config.ORIENTED_SESSIONS.discard(session_id)
             if agent_file.exists():
                 agent_file.unlink()
@@ -625,6 +631,7 @@ def start_coordinator() -> bool:
                     requests.delete(f"{config.OPENCODE_URL}/session/{session_id}", timeout=5)
                 config.COORDINATOR_SESSION_ID = None
                 config.COORDINATOR_MODEL = None
+                config.COORDINATOR_AGENT = None
                 config.ORIENTED_SESSIONS.discard(session_id)
                 if agent_file.exists():
                     agent_file.unlink()
@@ -660,6 +667,7 @@ def stop_coordinator() -> None:
             config.log.warning(f"Failed to kill coordinator session: {e}")
         config.COORDINATOR_SESSION_ID = None
         config.COORDINATOR_MODEL = None
+        config.COORDINATOR_AGENT = None
 
         # Clean up coordinator agent file
         try:

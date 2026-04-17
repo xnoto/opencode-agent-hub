@@ -319,9 +319,10 @@ ORIENTATION_PENDING: dict[str, dict] = {}
 _sessions_cache: list[dict] = []
 _sessions_cache_time: float = 0
 
-# Coordinator session ID and model override (set at coordinator startup)
+# Coordinator session ID, model override, and agent name (set at coordinator startup)
 COORDINATOR_SESSION_ID: str | None = None
 COORDINATOR_MODEL: dict[str, str] | None = None
+COORDINATOR_AGENT: str | None = None
 
 # Agent→model lookup: maps agent name to {"providerID": ..., "modelID": ...}.
 # Populated by preflight from the resolved OpenCode config.
