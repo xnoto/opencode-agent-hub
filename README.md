@@ -137,19 +137,21 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
   "log_level": "INFO",
   "rate_limit": {
     "enabled": false,
-    "max_messages": 10,
-    "window_seconds": 300,
-    "cooldown_seconds": 0
+    "max_messages_per_window": 100,
+    "window_seconds": 3600,
+    "cooldown_seconds": 5
   },
   "coordinator": {
     "enabled": true,
     "directory": "~/.agent-hub/coordinator",
     "agents_md": ""
   },
-  "gc": { "message_ttl_seconds": 3600, "agent_stale_seconds": 3600, "interval_seconds": 60 },
-  "session": { "poll_seconds": 5, "cache_ttl": 10 },
-  "injection": { "workers": 4, "retries": 3, "timeout": 5 },
-  "metrics_interval": 30
+  "agent": { "stale_seconds": 600 },
+  "message": { "ttl_seconds": 3600 },
+  "poll": { "session_seconds": 5, "gc_seconds": 60, "metrics_seconds": 60 },
+  "cache": { "session_ttl_seconds": 5 },
+  "injection": { "workers": 3, "retries": 3, "timeout_seconds": 30 },
+  "orientation": { "retry_delay_seconds": 30, "retry_max": 5 }
 }
 ```
 
@@ -161,24 +163,26 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
 | `AGENT_HUB_MODEL` | `opencode/minimax-m2.5-free` | Hub server default model (`provider/model`) |
 | `AGENT_HUB_DEFAULT_AGENT` | (none) | Agent name for undetectable sessions |
 | `AGENT_HUB_DAEMON_LOG_LEVEL` | `INFO` | Log level |
-| `AGENT_HUB_MESSAGE_TTL` | `3600` | Message TTL (seconds) |
-| `AGENT_HUB_AGENT_STALE` | `3600` | Agent stale threshold (seconds) |
-| `AGENT_HUB_GC_INTERVAL` | `60` | GC interval (seconds) |
-| `AGENT_HUB_SESSION_POLL` | `5` | Session poll interval (seconds) |
-| `AGENT_HUB_SESSION_CACHE_TTL` | `10` | Session cache TTL (seconds) |
-| `AGENT_HUB_INJECTION_WORKERS` | `4` | Injection worker threads |
+| `AGENT_HUB_MESSAGE_TTL_SECONDS` | `3600` | Message TTL (seconds) |
+| `AGENT_HUB_AGENT_STALE_SECONDS` | `600` | Agent stale threshold (seconds) |
+| `AGENT_HUB_SESSION_POLL_SECONDS` | `5` | Session poll interval (seconds) |
+| `AGENT_HUB_GC_INTERVAL_SECONDS` | `60` | GC interval (seconds) |
+| `AGENT_HUB_METRICS_INTERVAL` | `60` | Metrics write interval (seconds) |
+| `AGENT_HUB_SESSION_CACHE_TTL` | `5` | Session cache TTL (seconds) |
+| `AGENT_HUB_INJECTION_WORKERS` | `3` | Injection worker threads |
 | `AGENT_HUB_INJECTION_RETRIES` | `3` | Injection retry attempts |
-| `AGENT_HUB_INJECTION_TIMEOUT` | `5` | Injection timeout (seconds) |
-| `AGENT_HUB_METRICS_INTERVAL` | `30` | Metrics write interval (seconds) |
+| `AGENT_HUB_INJECTION_TIMEOUT` | `30` | Injection timeout (seconds) |
+| `AGENT_HUB_ORIENTATION_RETRY_DELAY` | `30` | Orientation retry delay (seconds) |
+| `AGENT_HUB_ORIENTATION_RETRY_MAX` | `5` | Max orientation retries |
 
 ### Rate Limiting
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_HUB_RATE_LIMIT` | `false` | Enable rate limiting |
-| `AGENT_HUB_RATE_LIMIT_MAX` | `10` | Max messages per agent per window |
-| `AGENT_HUB_RATE_LIMIT_WINDOW` | `300` | Window size (seconds) |
-| `AGENT_HUB_RATE_LIMIT_COOLDOWN` | `0` | Min seconds between messages |
+| `AGENT_HUB_RATE_LIMIT_ENABLED` | `false` | Enable rate limiting |
+| `AGENT_HUB_RATE_LIMIT_MAX_MESSAGES` | `100` | Max messages per agent per window |
+| `AGENT_HUB_RATE_LIMIT_WINDOW_SECONDS` | `3600` | Window size (seconds) |
+| `AGENT_HUB_RATE_LIMIT_COOLDOWN_SECONDS` | `5` | Min seconds between messages |
 
 ### Coordinator
 
@@ -189,7 +193,7 @@ The coordinator is a dedicated OpenCode session that introduces agents to each o
 | `AGENT_HUB_COORDINATOR` | `true` | Enable coordinator |
 | `AGENT_HUB_COORDINATOR_DIR` | `~/.agent-hub/coordinator` | Coordinator working directory |
 | `AGENT_HUB_COORDINATOR_PRESERVE_LOCAL_AGENTS_MD` | `false` | Keep existing AGENTS.md on restart |
-| `AGENT_HUB_COORDINATOR_READY_TIMEOUT` | `20` | Bootstrap ready timeout (seconds) |
+| `AGENT_HUB_COORDINATOR_READY_TIMEOUT` | `60` | Bootstrap ready timeout (seconds) |
 | `AGENT_HUB_COORDINATOR_STRICT_READY` | `false` | Require exact `READY` acknowledgment |
 | `AGENT_HUB_COORDINATOR_BOOTSTRAP_REQUIRED` | `false` | Fail startup if bootstrap times out |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom AGENTS.md path |
