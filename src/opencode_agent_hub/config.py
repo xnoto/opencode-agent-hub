@@ -222,6 +222,40 @@ RATE_LIMIT_COOLDOWN_SECONDS = _get_config_value(
     int,
 )
 
+
+# =============================================================================
+# Route-specific chatty throttle
+# =============================================================================
+
+CHATTY_THROTTLE_ENABLED = _get_config_value(
+    "AGENT_HUB_CHATTY_THROTTLE_ENABLED",
+    ["chatty_throttle", "enabled"],
+    True,
+    _CONFIG,
+    bool,
+)
+CHATTY_THROTTLE_MAX_MESSAGES = _get_config_value(
+    "AGENT_HUB_CHATTY_THROTTLE_MAX_MESSAGES",
+    ["chatty_throttle", "max_messages"],
+    3,
+    _CONFIG,
+    int,
+)
+CHATTY_THROTTLE_WINDOW_SECONDS = _get_config_value(
+    "AGENT_HUB_CHATTY_THROTTLE_WINDOW_SECONDS",
+    ["chatty_throttle", "window_seconds"],
+    15,
+    _CONFIG,
+    int,
+)
+CHATTY_THROTTLE_COOLDOWN_SECONDS = _get_config_value(
+    "AGENT_HUB_CHATTY_THROTTLE_COOLDOWN_SECONDS",
+    ["chatty_throttle", "cooldown_seconds"],
+    15,
+    _CONFIG,
+    int,
+)
+
 # =============================================================================
 # Agent & Session Configuration
 # =============================================================================

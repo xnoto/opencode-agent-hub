@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,6 +18,10 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 
 from opencode_agent_hub.config import (
     ARCHIVE_DIR,
+    CHATTY_THROTTLE_COOLDOWN_SECONDS,
+    CHATTY_THROTTLE_ENABLED,
+    CHATTY_THROTTLE_MAX_MESSAGES,
+    CHATTY_THROTTLE_WINDOW_SECONDS,
     COORDINATOR_SESSION_ID,
     DAEMON_START_TIME_MS,
     INJECTION_RETRIES,
@@ -45,6 +50,142 @@ HUB_SENDER_ID = "hub"
 _injection_queue: queue.Queue[InjectionTask] = queue.Queue()
 _message_queue: queue.Queue[MessageTask] = queue.Queue()
 _session_queue: queue.Queue[SessionTask] = queue.Queue()
+
+RouteKey = tuple[str, str, str]
+
+_route_throttle_lock = threading.Lock()
+_route_message_times: dict[RouteKey, deque[float]] = {}
+_route_cooldowns: dict[RouteKey, float] = {}
+_route_pending: dict[RouteKey, deque[InjectionTask]] = {}
+_ROUTE_RELEASE_POLL_SECONDS = 1.0
+
+
+def _get_route_key(task: InjectionTask) -> RouteKey | None:
+    """Build a route key for per-thread agent-to-agent throttling."""
+    if not CHATTY_THROTTLE_ENABLED:
+        return None
+    if not task.original_sender or not task.target_agent:
+        return None
+    return (task.original_sender, task.target_agent, task.thread_id or "")
+
+
+def _prune_route_history(route_key: RouteKey, now: float) -> deque[float]:
+    """Remove timestamps outside the configured throttle window."""
+    history = _route_message_times.setdefault(route_key, deque())
+    window_start = now - CHATTY_THROTTLE_WINDOW_SECONDS
+    while history and history[0] <= window_start:
+        history.popleft()
+    return history
+
+
+def _queue_delayed_injection(
+    route_key: RouteKey,
+    task: InjectionTask,
+    cooldown_until: float,
+    *,
+    reason: str,
+) -> None:
+    """Queue a task for delayed delivery on a throttled route."""
+    pending = _route_pending.setdefault(route_key, deque())
+    pending.append(task)
+    metrics.inc("agent_hub_chatty_throttle_delayed_total")
+    log.info(
+        "Delaying route %s -> %s (thread=%s) until %.1f: %s (queue=%d)",
+        route_key[0],
+        route_key[1],
+        route_key[2] or "-",
+        cooldown_until,
+        reason,
+        len(pending),
+    )
+
+
+def _prepare_injection_task(task: InjectionTask, now: float | None = None) -> InjectionTask | None:
+    """Return a task for immediate dispatch or queue it behind a route cooldown."""
+    route_key = _get_route_key(task)
+    if route_key is None:
+        return task
+
+    current_time = time.time() if now is None else now
+    with _route_throttle_lock:
+        history = _prune_route_history(route_key, current_time)
+        cooldown_until = _route_cooldowns.get(route_key, 0.0)
+        pending = _route_pending.get(route_key)
+
+        if pending:
+            if cooldown_until <= current_time:
+                cooldown_until = current_time + CHATTY_THROTTLE_COOLDOWN_SECONDS
+                _route_cooldowns[route_key] = cooldown_until
+            _queue_delayed_injection(route_key, task, cooldown_until, reason="queue_backlog")
+            return None
+
+        if cooldown_until > current_time:
+            _queue_delayed_injection(route_key, task, cooldown_until, reason="cooldown_active")
+            return None
+
+        if len(history) >= CHATTY_THROTTLE_MAX_MESSAGES:
+            cooldown_until = current_time + CHATTY_THROTTLE_COOLDOWN_SECONDS
+            _route_cooldowns[route_key] = cooldown_until
+            metrics.inc("agent_hub_chatty_throttle_triggered_total")
+            _queue_delayed_injection(route_key, task, cooldown_until, reason="threshold_exceeded")
+            return None
+
+        history.append(current_time)
+        return task
+
+
+def _release_delayed_injection_tasks(now: float | None = None) -> list[InjectionTask]:
+    """Release delayed tasks in route order when their cooldown expires."""
+    if not CHATTY_THROTTLE_ENABLED:
+        return []
+
+    current_time = time.time() if now is None else now
+    ready: list[InjectionTask] = []
+
+    with _route_throttle_lock:
+        for route_key in list(_route_pending.keys()):
+            pending = _route_pending.get(route_key)
+            if not pending:
+                _route_pending.pop(route_key, None)
+                _route_cooldowns.pop(route_key, None)
+                continue
+
+            history = _prune_route_history(route_key, current_time)
+            cooldown_until = _route_cooldowns.get(route_key, 0.0)
+            if cooldown_until > current_time:
+                continue
+
+            while pending and len(history) < CHATTY_THROTTLE_MAX_MESSAGES:
+                ready.append(pending.popleft())
+                history.append(current_time)
+                metrics.inc("agent_hub_chatty_throttle_released_total")
+
+            if pending:
+                _route_cooldowns[route_key] = current_time + CHATTY_THROTTLE_COOLDOWN_SECONDS
+                metrics.inc("agent_hub_chatty_throttle_triggered_total")
+                log.info(
+                    "Route %s -> %s (thread=%s) re-entered cooldown with %d pending",
+                    route_key[0],
+                    route_key[1],
+                    route_key[2] or "-",
+                    len(pending),
+                )
+                continue
+
+            _route_pending.pop(route_key, None)
+            _route_cooldowns.pop(route_key, None)
+            if not history:
+                _route_message_times.pop(route_key, None)
+
+    return ready
+
+
+def _reset_route_throttle_state() -> None:
+    """Reset in-memory route throttle state. Used by tests."""
+    with _route_throttle_lock:
+        _route_message_times.clear()
+        _route_cooldowns.clear()
+        _route_pending.clear()
 
 
 def validate_message(msg: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -303,64 +444,75 @@ def inject_message(
     )
 
 
+def _deliver_injection_task(task: InjectionTask) -> None:
+    """Deliver a prepared injection task to the target OpenCode session."""
+    # Detect the session's active agent, then look up the model.
+    # For sessions where the agent can't be detected (and DEFAULT_AGENT
+    # is None), we skip the agent label and let the hub server's
+    # default model (set via HUB_MODEL at startup) handle it.
+    from opencode_agent_hub.config import (
+        AGENT_MODELS,
+        COORDINATOR_AGENT,
+        COORDINATOR_MODEL,
+        COORDINATOR_SESSION_ID,
+        DEFAULT_AGENT,
+    )
+
+    # For the coordinator session, use the model resolved at startup
+    # (from opencode.json). The coordinator has no TUI user, so
+    # get_session_agent would detect the hub server's default.
+    session_model: dict[str, str] | None
+    if COORDINATOR_SESSION_ID and task.session_id == COORDINATOR_SESSION_ID and COORDINATOR_MODEL:
+        session_model = COORDINATOR_MODEL
+        session_agent = COORDINATOR_AGENT
+    else:
+        session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
+        session_model = AGENT_MODELS.get(session_agent) if session_agent else None
+    log.debug(
+        f"Worker resolving model for {task.session_id[:8]}: "
+        f"resolved={session_agent!r} "
+        f"model={session_model} AGENT_MODELS_keys={list(AGENT_MODELS.keys())}"
+    )
+    success = inject_message_sync(
+        task.session_id, task.text, model=session_model, agent=session_agent
+    )
+    if not success and task.original_sender:
+        # Injection failed after retries — notify the original sender
+        metrics.inc("agent_hub_messages_delivery_failed_total")
+        _send_delivery_feedback(
+            to=task.original_sender,
+            status="failed",
+            original_message_id=task.original_message_id,
+            thread_id=task.thread_id,
+            reason="injection_failed",
+            errors=[
+                f"Failed to inject into session {task.session_id[:8]} "
+                f"for agent {task.target_agent or 'unknown'} "
+                f"after {INJECTION_RETRIES} attempts"
+            ],
+        )
+
+
 def injection_worker(shutdown_event: threading.Event) -> None:
     """Worker thread that processes injection queue."""
     while not shutdown_event.is_set():
+        ready_tasks = _release_delayed_injection_tasks()
+        for ready_task in ready_tasks:
+            try:
+                _deliver_injection_task(ready_task)
+            except Exception as e:
+                log.error(f"Delayed injection worker error: {e}")
+
         try:
-            task = _injection_queue.get(timeout=1)
+            task = _injection_queue.get(timeout=_ROUTE_RELEASE_POLL_SECONDS)
         except queue.Empty:
             continue
 
         try:
-            # Detect the session's active agent, then look up the model.
-            # For sessions where the agent can't be detected (and DEFAULT_AGENT
-            # is None), we skip the agent label and let the hub server's
-            # default model (set via HUB_MODEL at startup) handle it.
-            from opencode_agent_hub.config import (
-                AGENT_MODELS,
-                COORDINATOR_AGENT,
-                COORDINATOR_MODEL,
-                COORDINATOR_SESSION_ID,
-                DEFAULT_AGENT,
-            )
-
-            # For the coordinator session, use the model resolved at startup
-            # (from opencode.json). The coordinator has no TUI user, so
-            # get_session_agent would detect the hub server's default.
-            session_model: dict[str, str] | None
-            if (
-                COORDINATOR_SESSION_ID
-                and task.session_id == COORDINATOR_SESSION_ID
-                and COORDINATOR_MODEL
-            ):
-                session_model = COORDINATOR_MODEL
-                session_agent = COORDINATOR_AGENT
-            else:
-                session_agent = get_session_agent(task.session_id) or DEFAULT_AGENT
-                session_model = AGENT_MODELS.get(session_agent) if session_agent else None
-            log.debug(
-                f"Worker resolving model for {task.session_id[:8]}: "
-                f"resolved={session_agent!r} "
-                f"model={session_model} AGENT_MODELS_keys={list(AGENT_MODELS.keys())}"
-            )
-            success = inject_message_sync(
-                task.session_id, task.text, model=session_model, agent=session_agent
-            )
-            if not success and task.original_sender:
-                # Injection failed after retries — notify the original sender
-                metrics.inc("agent_hub_messages_delivery_failed_total")
-                _send_delivery_feedback(
-                    to=task.original_sender,
-                    status="failed",
-                    original_message_id=task.original_message_id,
-                    thread_id=task.thread_id,
-                    reason="injection_failed",
-                    errors=[
-                        f"Failed to inject into session {task.session_id[:8]} "
-                        f"for agent {task.target_agent or 'unknown'} "
-                        f"after {INJECTION_RETRIES} attempts"
-                    ],
-                )
+            prepared_task = _prepare_injection_task(task)
+            if prepared_task is None:
+                continue
+            _deliver_injection_task(prepared_task)
         except Exception as e:
             log.error(f"Injection worker error: {e}")
         finally:
@@ -572,23 +724,46 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
 class MessageHandler(FileSystemEventHandler):
     """Handle new message files in ~/.agent-hub/messages/."""
 
-    def on_created(self, event: FileSystemEvent) -> None:
+    def _message_path_from_event(
+        self, event: FileSystemEvent, *, moved: bool = False
+    ) -> Path | None:
         if event.is_directory:
-            return
-        path = Path(cast(str, event.src_path))
+            return None
+
+        raw_path = getattr(event, "dest_path", "") if moved else event.src_path
+        path = Path(cast(str, raw_path))
         if path.suffix != ".json":
-            return
+            return None
         # Ignore archive directory
         if "archive" in path.parts:
-            return
+            return None
         # Skip feedback files early (they'll also be skipped by the hub sender check,
         # but this avoids unnecessary queueing)
         if path.name.startswith("feedback-"):
-            return
+            return None
+        return path
 
+    def _queue_message_file(self, path: Path) -> None:
         log.info(f"New message file detected: {path.name}")
         # Queue for async processing (non-blocking)
         _message_queue.put(MessageTask(path=path))
+
+    def on_created(self, event: FileSystemEvent) -> None:
+        path = self._message_path_from_event(event)
+        if path is not None:
+            self._queue_message_file(path)
+
+    def on_moved(self, event: FileSystemEvent) -> None:
+        """Queue messages written via temp-file + atomic rename.
+
+        ``atomic_write_json`` writes ``*.tmp.<pid>`` and renames it to the final
+        ``*.json`` path.  Watchdog backends commonly report that final POSIX
+        rename as a moved event, not a created event, so relying on
+        ``on_created`` misses the finalized message file entirely.
+        """
+        path = self._message_path_from_event(event, moved=True)
+        if path is not None:
+            self._queue_message_file(path)
 
 
 class SessionHandler(FileSystemEventHandler):
@@ -600,14 +775,31 @@ class SessionHandler(FileSystemEventHandler):
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Only orient when a NEW session file is created."""
-        if event.is_directory:
-            return
-        path = Path(cast(str, event.src_path))
-        if path.suffix != ".json":
-            return
-        if not path.name.startswith("ses_"):
-            return
+        path = self._session_path_from_event(event)
+        if path is not None:
+            self._queue_session_file(path)
 
+    def on_moved(self, event: FileSystemEvent) -> None:
+        """Orient sessions whose final file appears via atomic rename."""
+        path = self._session_path_from_event(event, moved=True)
+        if path is not None:
+            self._queue_session_file(path)
+
+    def _session_path_from_event(
+        self, event: FileSystemEvent, *, moved: bool = False
+    ) -> Path | None:
+        if event.is_directory:
+            return None
+
+        raw_path = getattr(event, "dest_path", "") if moved else event.src_path
+        path = Path(cast(str, raw_path))
+        if path.suffix != ".json":
+            return None
+        if not path.name.startswith("ses_"):
+            return None
+        return path
+
+    def _queue_session_file(self, path: Path) -> None:
         log.debug(f"New session file created: {path.name}")
         # Queue for async processing (non-blocking)
         _session_queue.put(SessionTask(path=path))
@@ -624,12 +816,30 @@ class AgentHandler(FileSystemEventHandler):
         self.agents = agents
 
     def on_created(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
-            return
-        path = Path(cast(str, event.src_path))
-        if path.suffix != ".json":
+        path = self._agent_path_from_event(event)
+        if path is None:
             return
 
+        self._handle_agent_file(path)
+
+    def on_moved(self, event: FileSystemEvent) -> None:
+        path = self._agent_path_from_event(event, moved=True)
+        if path is None:
+            return
+
+        self._handle_agent_file(path)
+
+    def _agent_path_from_event(self, event: FileSystemEvent, *, moved: bool = False) -> Path | None:
+        if event.is_directory:
+            return None
+
+        raw_path = getattr(event, "dest_path", "") if moved else event.src_path
+        path = Path(cast(str, raw_path))
+        if path.suffix != ".json":
+            return None
+        return path
+
+    def _handle_agent_file(self, path: Path) -> None:
         log.info(f"New agent registration file: {path.name}")
         self._reload()
 
