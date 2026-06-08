@@ -19,7 +19,9 @@ from opencode_agent_hub.metrics import metrics
 from opencode_agent_hub.models import InjectionTask
 
 
-def _make_task(*, sender: str = "coordinator", target: str = "agent-a", thread: str = "thr-1") -> InjectionTask:
+def _make_task(
+    *, sender: str = "coordinator", target: str = "agent-a", thread: str = "thr-1"
+) -> InjectionTask:
     return InjectionTask(
         session_id="ses_test",
         text="hello",
@@ -66,7 +68,9 @@ def test_route_throttle_isolated_by_thread_and_direction() -> None:
         mock.patch("opencode_agent_hub.messaging.CHATTY_THROTTLE_COOLDOWN_SECONDS", 15),
     ):
         for offset in range(3):
-            assert _prepare_injection_task(_make_task(thread="thr-1"), now=100.0 + offset) is not None
+            assert (
+                _prepare_injection_task(_make_task(thread="thr-1"), now=100.0 + offset) is not None
+            )
 
         assert _prepare_injection_task(_make_task(thread="thr-1"), now=103.0) is None
         assert _prepare_injection_task(_make_task(thread="thr-2"), now=103.0) is not None
