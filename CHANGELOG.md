@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.5.0...v1.6.0) (2026-06-08)
+
+
+### Features
+
+* add OpenCode config, throttling, and atomic file events ([#85](https://github.com/xnoto/opencode-agent-hub/issues/85)) ([d9a49d7](https://github.com/xnoto/opencode-agent-hub/commit/d9a49d77056b0155f8ef62c4fe14fbb7f364c353))
+
 ## [1.5.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.4.3...v1.5.0) (2026-04-17)
 
 
