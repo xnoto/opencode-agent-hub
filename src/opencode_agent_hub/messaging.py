@@ -473,7 +473,9 @@ def _deliver_injection_task(task: InjectionTask) -> None:
         f"resolved={session_agent!r} "
         f"model={session_model} AGENT_MODELS_keys={list(AGENT_MODELS.keys())}"
     )
-    success = inject_message_sync(task.session_id, task.text, model=session_model, agent=session_agent)
+    success = inject_message_sync(
+        task.session_id, task.text, model=session_model, agent=session_agent
+    )
     if not success and task.original_sender:
         # Injection failed after retries — notify the original sender
         metrics.inc("agent_hub_messages_delivery_failed_total")
@@ -722,23 +724,46 @@ def process_message_file(path: Path, agents: dict[str, dict[str, Any]]) -> None:
 class MessageHandler(FileSystemEventHandler):
     """Handle new message files in ~/.agent-hub/messages/."""
 
-    def on_created(self, event: FileSystemEvent) -> None:
+    def _message_path_from_event(
+        self, event: FileSystemEvent, *, moved: bool = False
+    ) -> Path | None:
         if event.is_directory:
-            return
-        path = Path(cast(str, event.src_path))
+            return None
+
+        raw_path = getattr(event, "dest_path", "") if moved else event.src_path
+        path = Path(cast(str, raw_path))
         if path.suffix != ".json":
-            return
+            return None
         # Ignore archive directory
         if "archive" in path.parts:
-            return
+            return None
         # Skip feedback files early (they'll also be skipped by the hub sender check,
         # but this avoids unnecessary queueing)
         if path.name.startswith("feedback-"):
-            return
+            return None
+        return path
 
+    def _queue_message_file(self, path: Path) -> None:
         log.info(f"New message file detected: {path.name}")
         # Queue for async processing (non-blocking)
         _message_queue.put(MessageTask(path=path))
+
+    def on_created(self, event: FileSystemEvent) -> None:
+        path = self._message_path_from_event(event)
+        if path is not None:
+            self._queue_message_file(path)
+
+    def on_moved(self, event: FileSystemEvent) -> None:
+        """Queue messages written via temp-file + atomic rename.
+
+        ``atomic_write_json`` writes ``*.tmp.<pid>`` and renames it to the final
+        ``*.json`` path.  Watchdog backends commonly report that final POSIX
+        rename as a moved event, not a created event, so relying on
+        ``on_created`` misses the finalized message file entirely.
+        """
+        path = self._message_path_from_event(event, moved=True)
+        if path is not None:
+            self._queue_message_file(path)
 
 
 class SessionHandler(FileSystemEventHandler):
@@ -750,14 +775,31 @@ class SessionHandler(FileSystemEventHandler):
 
     def on_created(self, event: FileSystemEvent) -> None:
         """Only orient when a NEW session file is created."""
-        if event.is_directory:
-            return
-        path = Path(cast(str, event.src_path))
-        if path.suffix != ".json":
-            return
-        if not path.name.startswith("ses_"):
-            return
+        path = self._session_path_from_event(event)
+        if path is not None:
+            self._queue_session_file(path)
 
+    def on_moved(self, event: FileSystemEvent) -> None:
+        """Orient sessions whose final file appears via atomic rename."""
+        path = self._session_path_from_event(event, moved=True)
+        if path is not None:
+            self._queue_session_file(path)
+
+    def _session_path_from_event(
+        self, event: FileSystemEvent, *, moved: bool = False
+    ) -> Path | None:
+        if event.is_directory:
+            return None
+
+        raw_path = getattr(event, "dest_path", "") if moved else event.src_path
+        path = Path(cast(str, raw_path))
+        if path.suffix != ".json":
+            return None
+        if not path.name.startswith("ses_"):
+            return None
+        return path
+
+    def _queue_session_file(self, path: Path) -> None:
         log.debug(f"New session file created: {path.name}")
         # Queue for async processing (non-blocking)
         _session_queue.put(SessionTask(path=path))
@@ -774,12 +816,30 @@ class AgentHandler(FileSystemEventHandler):
         self.agents = agents
 
     def on_created(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
-            return
-        path = Path(cast(str, event.src_path))
-        if path.suffix != ".json":
+        path = self._agent_path_from_event(event)
+        if path is None:
             return
 
+        self._handle_agent_file(path)
+
+    def on_moved(self, event: FileSystemEvent) -> None:
+        path = self._agent_path_from_event(event, moved=True)
+        if path is None:
+            return
+
+        self._handle_agent_file(path)
+
+    def _agent_path_from_event(self, event: FileSystemEvent, *, moved: bool = False) -> Path | None:
+        if event.is_directory:
+            return None
+
+        raw_path = getattr(event, "dest_path", "") if moved else event.src_path
+        path = Path(cast(str, raw_path))
+        if path.suffix != ".json":
+            return None
+        return path
+
+    def _handle_agent_file(self, path: Path) -> None:
         log.info(f"New agent registration file: {path.name}")
         self._reload()
 
