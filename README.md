@@ -132,7 +132,7 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
 {
   "hub": {
     "port": 4096,
-    "model": "opencode/minimax-m2.5-free"
+    "model": "opencode/minimax-m3"
   },
   "log_level": "INFO",
   "rate_limit": {
@@ -160,7 +160,7 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENCODE_PORT` | `4096` | Hub server port |
-| `AGENT_HUB_MODEL` | `opencode/minimax-m2.5-free` | Hub server default model (`provider/model`) |
+| `AGENT_HUB_MODEL` | `opencode/minimax-m3` | Hub server default model (`provider/model`) |
 | `AGENT_HUB_DEFAULT_AGENT` | (none) | Agent name for undetectable sessions |
 | `AGENT_HUB_DAEMON_LOG_LEVEL` | `INFO` | Log level |
 | `AGENT_HUB_MESSAGE_TTL_SECONDS` | `3600` | Message TTL (seconds) |
@@ -198,7 +198,7 @@ The coordinator is a dedicated OpenCode session that introduces agents to each o
 | `AGENT_HUB_COORDINATOR_BOOTSTRAP_REQUIRED` | `false` | Fail startup if bootstrap times out |
 | `AGENT_HUB_COORDINATOR_AGENTS_MD` | (auto-detect) | Custom AGENTS.md path |
 
-The coordinator model is configured in `opencode.json` within the coordinator directory (default: `opencode/minimax-m2.5-free`). Custom coordinator instructions (`AGENTS.md`) are auto-detected from the config directory, package template, or system paths — override with `AGENT_HUB_COORDINATOR_AGENTS_MD`.
+The coordinator model is configured in `opencode.json` within the coordinator directory (default: `opencode/minimax-m3`). Custom coordinator instructions (`AGENTS.md`) are auto-detected from the config directory, package template, or system paths — override with `AGENT_HUB_COORDINATOR_AGENTS_MD`.
 
 ## Message Format
 

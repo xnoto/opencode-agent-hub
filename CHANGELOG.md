@@ -18,7 +18,7 @@
 
 ### Features
 
-* **config:** configurable hub server default model via `AGENT_HUB_MODEL` (default: `opencode/minimax-m2.5-free`)
+* **config:** configurable hub server default model via `AGENT_HUB_MODEL` (default: `opencode/minimax-m3`)
 * **injection:** pass agent label on `prompt_async` calls to match session's actual agent in the UI
 * **messaging:** message validation, delivery feedback, classified failure metrics, injection tracking, thread resolution locking
 
