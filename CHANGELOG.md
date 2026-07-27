@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.6.0...v1.6.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* **config:** use available MiniMax M3 model ([#87](https://github.com/xnoto/opencode-agent-hub/issues/87)) ([1880268](https://github.com/xnoto/opencode-agent-hub/commit/18802682e4b353d5acdc523d99765e4bb964aab2))
+
 ## [1.6.0](https://github.com/xnoto/opencode-agent-hub/compare/v1.5.0...v1.6.0) (2026-06-08)
 
 
