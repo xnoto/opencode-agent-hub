@@ -117,7 +117,7 @@ OPENCODE_URL = f"http://127.0.0.1:{OPENCODE_PORT}"
 # API-created sessions use this model instead of the server's built-in
 # default (claude).
 HUB_MODEL = _get_config_value(
-    "AGENT_HUB_MODEL", ["hub", "model"], "opencode/minimax-m2.5-free", _CONFIG, str
+    "AGENT_HUB_MODEL", ["hub", "model"], "opencode/minimax-m3", _CONFIG, str
 )
 
 # =============================================================================
