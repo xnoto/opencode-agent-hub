@@ -37,8 +37,8 @@
 
     "linear": { "enabled": false },
     "notion": { "enabled": false },
-    "aws-api-staging": { "enabled": false },
-    "aws-api-prod": { "enabled": false },
+    "aws-staging": { "enabled": false },
+    "aws-prod": { "enabled": false },
     "aws-docs": { "enabled": false },
     "grafana": { "enabled": false },
     "terraform-docs": { "enabled": false },
@@ -50,8 +50,8 @@
   "tools": {
     "linear_*": false,
     "notion_*": false,
-    "aws-api-staging_*": false,
-    "aws-api-prod_*": false,
+    "aws-staging_*": false,
+    "aws-prod_*": false,
     "aws-docs_*": false,
     "grafana_*": false,
     "terraform-docs_*": false,
