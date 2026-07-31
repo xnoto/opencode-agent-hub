@@ -264,6 +264,8 @@ jobs:
           sudo apt-get install -y dpkg-dev apt-utils createrepo-c rpm
 
       - name: Build APT repository
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           mkdir -p repo/apt
           cp artifacts/deb-packages/*.deb repo/apt/
@@ -277,10 +279,10 @@ jobs:
           apt-ftparchive release . > Release
           
           # Sign release
-          if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
-            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+          if [ -n "$GPG_PASSPHRASE" ]; then
+            printf '%s\n' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
               --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
-            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            printf '%s\n' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
               --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
           else
             gpg --batch --yes --pinentry-mode loopback --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
@@ -288,6 +290,8 @@ jobs:
           fi
 
       - name: Build RPM repository
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           mkdir -p repo/rpm
           cp artifacts/rpm-packages/*.rpm repo/rpm/
@@ -301,8 +305,8 @@ jobs:
           
           # Sign RPM packages
           for rpm in *.rpm; do
-            if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
-              echo "${{ secrets.GPG_PASSPHRASE }}" | rpmsign --addsign "$rpm"
+            if [ -n "$GPG_PASSPHRASE" ]; then
+              printf '%s\n' "$GPG_PASSPHRASE" | rpmsign --addsign "$rpm"
             else
               rpmsign --addsign "$rpm"
             fi
@@ -312,8 +316,8 @@ jobs:
           createrepo_c .
           
           # Sign repodata
-          if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
-            echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+          if [ -n "$GPG_PASSPHRASE" ]; then
+            printf '%s\n' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
               --default-key "$GPG_KEY_ID" --detach-sign --armor repodata/repomd.xml
           else
             gpg --batch --yes --pinentry-mode loopback --default-key "$GPG_KEY_ID" --detach-sign --armor repodata/repomd.xml
