@@ -67,15 +67,18 @@ brew install xnoto/opencode-agent-hub/opencode-agent-hub
 **Debian / Ubuntu:**
 
 ```bash
-curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/xnoto.gpg
+curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/xnoto.gpg
 echo "deb [signed-by=/etc/apt/keyrings/xnoto.gpg] https://xnoto.github.io/opencode-agent-hub/apt ./" | sudo tee /etc/apt/sources.list.d/xnoto.list
 sudo apt update && sudo apt install opencode-agent-hub
 ```
+
+Rerun the first command to refresh an existing keyring after the repository signing key is renewed.
 
 **Fedora / RHEL:**
 
 ```bash
 sudo curl -o /etc/yum.repos.d/xnoto.repo https://xnoto.github.io/opencode-agent-hub/xnoto.repo
+sudo rpm --import https://xnoto.github.io/opencode-agent-hub/KEY.gpg
 sudo dnf install opencode-agent-hub
 ```
 

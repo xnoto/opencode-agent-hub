@@ -17,32 +17,45 @@ on:
       - 'src/**'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to build (e.g., 0.4.0)'
-        required: false
+      tag_name:
+        description: 'Existing release tag to rebuild (e.g., v1.6.1)'
+        required: true
+        type: string
 
 jobs:
   build-python:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      source_ref: ${{ steps.version.outputs.source_ref }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name || github.event.release.tag_name || github.sha }}
 
       - name: Determine version
         id: version
+        env:
+          REQUESTED_TAG: ${{ inputs.tag_name || github.event.release.tag_name }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
-          elif [ -n "${{ inputs.tag_name }}" ]; then
-            VERSION="${{ inputs.tag_name }}"
-          elif [ -n "${{ github.event.release.tag_name }}" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
+          PROJECT_VERSION=$(grep '^version' pyproject.toml | head -1 | cut -d'"' -f2)
+          if [ -n "$REQUESTED_TAG" ]; then
+            case "$REQUESTED_TAG" in
+              v*) VERSION="${REQUESTED_TAG#v}" ;;
+              *)
+                echo "::error::Release tag must start with 'v': $REQUESTED_TAG"
+                exit 1
+                ;;
+            esac
+            if [ "$VERSION" != "$PROJECT_VERSION" ]; then
+              echo "::error::Tag $REQUESTED_TAG contains version $VERSION, but pyproject.toml contains $PROJECT_VERSION"
+              exit 1
+            fi
           else
-            VERSION=$(grep '^version' pyproject.toml | head -1 | cut -d'"' -f2)
+            VERSION="$PROJECT_VERSION"
           fi
-          VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "Building version: $VERSION"
 
       - uses: astral-sh/setup-uv@v4
@@ -60,6 +73,8 @@ jobs:
       image: fedora:43
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build-python.outputs.source_ref }}
 
       - name: Install build dependencies
         run: |
@@ -102,6 +117,8 @@ jobs:
     needs: build-python
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build-python.outputs.source_ref }}
 
       - name: Install build dependencies
         run: |
@@ -138,6 +155,8 @@ jobs:
     needs: build-python
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build-python.outputs.source_ref }}
 
       - name: Update PKGBUILD version
         run: |
@@ -154,7 +173,7 @@ jobs:
   upload-release:
     runs-on: ubuntu-latest
     needs: [build-python, build-rpm, build-deb, build-aur]
-    if: github.event_name == 'release' || inputs.tag_name != ''
+    if: ${{ github.event_name != 'workflow_dispatch' && (github.event_name == 'release' || inputs.tag_name != '') }}
     permissions:
       contents: write
     steps:
@@ -177,47 +196,67 @@ jobs:
   publish-repo:
     runs-on: ubuntu-latest
     needs: [build-python, build-rpm, build-deb]
-    # inputs.version for workflow_dispatch testing only - remove after verification
-    if: github.event_name == 'release' || inputs.tag_name != '' || inputs.version != ''
+    if: github.event_name == 'release' || inputs.tag_name != ''
     permissions:
       contents: write
       pages: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build-python.outputs.source_ref }}
 
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Check GPG key expiry
+      - name: Import and validate GPG signing key
+        env:
+          EXPECTED_GPG_FINGERPRINT: 396877BFC1403AE7BF0C91CC31B16FDE7CB4A3B8  # pragma: allowlist secret
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
-          # Key expires 2026-05-08
-          EXPIRY_DATE="2026-05-08"
-          EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s)
-          NOW_EPOCH=$(date +%s)
-          DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
-          
-          echo "GPG key expires: $EXPIRY_DATE ($DAYS_LEFT days remaining)"
-          
-          if [ "$DAYS_LEFT" -lt 30 ]; then
-            echo "::warning::GPG signing key expires in $DAYS_LEFT days! Please rotate the key soon."
-          fi
-          
-          if [ "$DAYS_LEFT" -lt 0 ]; then
-            echo "::error::GPG signing key has expired! Package signing will fail."
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::error::GPG_PRIVATE_KEY is not configured"
             exit 1
           fi
 
-      - name: Import GPG key
-        run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
-          # Get key fingerprint and trust it
-          KEY_FPR=$(gpg --list-secret-keys --with-colons | grep '^fpr' | head -1 | cut -d':' -f10)
-          echo "${KEY_FPR}:6:" | gpg --import-ownertrust
-          # Use short key ID for signing
-          KEY_ID="${KEY_FPR: -16}"
-          echo "GPG_KEY_ID=$KEY_ID" >> $GITHUB_ENV
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          KEY_DATA=$(gpg --batch --with-colons --list-secret-keys "$EXPECTED_GPG_FINGERPRINT")
+          KEY_FPR=$(printf '%s\n' "$KEY_DATA" | awk -F: '$1 == "fpr" { print $10; exit }')
+          KEY_EXPIRY=$(printf '%s\n' "$KEY_DATA" | awk -F: '$1 == "sec" { print $7; exit }')
+          KEY_CAPABILITIES=$(printf '%s\n' "$KEY_DATA" | awk -F: '$1 == "sec" { print $12; exit }')
+
+          if [ "$KEY_FPR" != "$EXPECTED_GPG_FINGERPRINT" ]; then
+            echo "::error::Imported GPG key fingerprint does not match the expected signing key"
+            exit 1
+          fi
+          if [[ "$KEY_CAPABILITIES" != *s* ]]; then
+            echo "::error::Imported GPG key is not capable of signing"
+            exit 1
+          fi
+          if [[ ! "$KEY_EXPIRY" =~ ^[0-9]+$ ]]; then
+            echo "::error::Unable to determine GPG signing key expiry"
+            exit 1
+          fi
+
+          if [ "$KEY_EXPIRY" -eq 0 ]; then
+            echo "GPG signing key does not expire"
+          else
+            NOW_EPOCH=$(date +%s)
+            if [ "$KEY_EXPIRY" -le "$NOW_EPOCH" ]; then
+              echo "::error::GPG signing key has expired; package signing cannot continue"
+              exit 1
+            fi
+            DAYS_LEFT=$(( (KEY_EXPIRY - NOW_EPOCH + 86399) / 86400 ))
+            EXPIRY_DATE=$(date -u -d "@$KEY_EXPIRY" +%Y-%m-%d)
+            echo "GPG signing key expires: $EXPIRY_DATE ($DAYS_LEFT days remaining)"
+            if [ "$DAYS_LEFT" -lt 30 ]; then
+              echo "::warning::GPG signing key expires in $DAYS_LEFT days; renew it soon"
+            fi
+          fi
+
+          printf '%s:6:\n' "$KEY_FPR" | gpg --import-ownertrust
+          echo "GPG_KEY_ID=$KEY_FPR" >> "$GITHUB_ENV"
 
       - name: Install repo tools
         run: |
@@ -325,7 +364,7 @@ jobs:
             <h2>Debian / Ubuntu (APT)</h2>
             <pre>
           # Add GPG key
-          curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/xnoto.gpg
+          curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/xnoto.gpg
 
           # Add repository
           echo "deb [signed-by=/etc/apt/keyrings/xnoto.gpg] https://xnoto.github.io/opencode-agent-hub/apt ./" | sudo tee /etc/apt/sources.list.d/xnoto.list
@@ -339,6 +378,9 @@ jobs:
             <pre>
           # Add repository
           sudo curl -o /etc/yum.repos.d/xnoto.repo https://xnoto.github.io/opencode-agent-hub/xnoto.repo
+
+          # Import or refresh the repository signing key
+          sudo rpm --import https://xnoto.github.io/opencode-agent-hub/KEY.gpg
 
           # Install
           sudo dnf install opencode-agent-hub
