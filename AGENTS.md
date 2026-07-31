@@ -11,7 +11,9 @@ The daemon communicates with the OpenCode hub server (`opencode serve`) on the c
 | `/session` | GET | List active sessions |
 | `/session` | POST | Create session |
 | `/session/{id}/prompt_async` | POST | Inject message and trigger LLM |
+| `/session/{id}/message` | POST | Add orientation context without triggering the LLM |
 | `/session/{id}/message` | GET | List session messages |
+| `/session/{id}` | DELETE | Delete a coordinator session during lifecycle cleanup |
 | `/config` | PATCH | Update server configuration at runtime |
 
 ### `prompt_async`
@@ -52,14 +54,31 @@ The daemon detects a session's agent by querying the **first user message** in S
 
 1. **Query user messages, not assistant messages.** The hub server auto-creates assistant messages with a default agent on session creation. Only user messages carry the real agent.
 2. **Query the first user message (ASC order).** Later user messages may be daemon-injected. The first one is always the real user's prompt.
-3. **Always pass both `model` and `agent` on `prompt_async`.** Without either, the hub server applies defaults that may not match the session.
+3. **Pass resolved `model` and `agent` values on `prompt_async`; omit unresolved values.** Never send `null` or invent a fallback. The hub server applies its configured defaults for fields the daemon cannot resolve.
 4. **No hardcoded agent names.** End users have varied agent configurations. All fallbacks use `DEFAULT_AGENT` (configurable, defaults to None).
 5. **Coordinator bypasses SQLite detection.** Its model and agent are resolved from `opencode.json` at startup.
 6. **Explicit `"model"` takes priority over `"agent"` lookup in config.** The `"agent"` field is for labeling; `"model"` specifies the provider and model to call.
 
+## Operational Safeguards
+
+- Startup preflight verifies that the Agent Hub MCP is enabled, its tools are permitted, and configured agent mappings use parseable `provider/model` identifiers before message watching begins. It does not contact providers to prove model availability.
+- Coordinator orientation uses `POST /session/{id}/message` so context can be attached without waking the model. Work injection uses `prompt_async`.
+- Delivery feedback is written as `delivery-status` system messages. Consumers should not treat those notifications as user work.
+- Route-specific chatty throttling is configurable and enabled by default. Preserve the configured window, message limit, and cooldown when changing routing behavior.
+- Message and feedback files use atomic writes. Keep filesystem event handling compatible with create and move events.
+
 ## Testing
 
-Tests are in `tests/`, organized by feature area. Run with `uv run pytest`. Test names follow `test_[action]_[condition]_[expected]` and read as complete sentences. Use Given-When-Then structure with named constants and descriptive assertion messages.
+Python 3.11 or newer is required. Set up and verify the repository with:
+
+```bash
+uv sync --all-extras
+uv lock --check
+pre-commit install
+pre-commit install --hook-type commit-msg
+```
+
+Tests are in `tests/`, organized by feature area. Run with `uv run --frozen pytest`. Test names follow `test_[action]_[condition]_[expected]` and read as complete sentences. Use Given-When-Then structure with named constants and descriptive assertion messages.
 
 When modifying injection behavior, ensure tests verify:
 - The correct `model` and `agent` appear in the `prompt_async` payload
@@ -67,4 +86,4 @@ When modifying injection behavior, ensure tests verify:
 - No agent name strings are hardcoded — use `DEFAULT_AGENT` or config values
 - Both the coordinator and regular session code paths are covered
 
-Pre-commit hooks enforce all checks automatically. Run `pre-commit run --all-files` to verify locally.
+Pre-commit hooks enforce Ruff, formatting, YAML/TOML validation, secret checks, mypy, Bandit, Vulture, Conventional Commits, and pytest. Work on a feature branch because `main` is protected and guarded by `no-commit-to-branch`. Run `pre-commit run --all-files` to verify locally, then recheck `git status` in case a package tool attempted to refresh `uv.lock`.

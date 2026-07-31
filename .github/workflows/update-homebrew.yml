@@ -44,22 +44,40 @@ jobs:
           python - <<'PY'
           import pathlib
           import re
+          import tarfile
+          import tomllib
 
           tag = "${{ steps.release.outputs.tag }}"
           sha = "${{ steps.sha.outputs.sha }}"
+          with tarfile.open("/tmp/opencode-agent-hub.tar.gz", "r:gz") as archive:
+              pyproject = next(member for member in archive.getmembers() if member.name.endswith("/pyproject.toml"))
+              project = tomllib.loads(archive.extractfile(pyproject).read().decode())["project"]
+          license_name = project["license"]
+          if not isinstance(license_name, str):
+              raise TypeError("project.license must be an SPDX string")
           formula = pathlib.Path("Formula/opencode-agent-hub.rb")
           text = formula.read_text()
 
-          text = re.sub(r'url "https://github.com/xnoto/opencode-agent-hub/archive/refs/tags/v[0-9\.]+\.tar\.gz"',
-                        f'url "https://github.com/xnoto/opencode-agent-hub/archive/refs/tags/{tag}.tar.gz"',
-                        text)
-          text = re.sub(r'sha256 "[a-f0-9]{64}"', f'sha256 "{sha}"', text, count=1)
+          def replace_once(pattern, replacement, source, field):
+              updated, count = re.subn(pattern, replacement, source)
+              if count != 1:
+                  raise RuntimeError(f"expected exactly one {field} field, found {count}")
+              return updated
+
+          text = replace_once(
+              r'(?m)^  url "https://github.com/xnoto/opencode-agent-hub/archive/refs/tags/v[0-9\.]+\.tar\.gz"$',
+              f'  url "https://github.com/xnoto/opencode-agent-hub/archive/refs/tags/{tag}.tar.gz"',
+              text,
+              "source URL",
+          )
+          text = replace_once(r'(?m)^  sha256 "[a-f0-9]{64}"$', f'  sha256 "{sha}"', text, "SHA256")
+          text = replace_once(r'(?m)^  license "[^"]+"$', f'  license "{license_name}"', text, "license")
 
           formula.write_text(text)
           PY
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.HOMEBREW_TAP_SECRET }}
           commit-message: "chore: update formula for ${{ steps.release.outputs.tag }}"
@@ -68,6 +86,7 @@ jobs:
             ## Summary
             - update Homebrew formula to ${{ steps.release.outputs.tag }}
             - refresh tarball SHA256
+            - synchronize the upstream license
           branch: "auto/update-homebrew-${{ steps.release.outputs.tag }}"
           delete-branch: true
           sign-commits: true
