@@ -15,7 +15,7 @@
   <h2>Debian / Ubuntu (APT)</h2>
   <pre>
 # Add GPG key
-curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/xnoto.gpg
+curl -fsSL https://xnoto.github.io/opencode-agent-hub/KEY.gpg | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/xnoto.gpg
 
 # Add repository
 echo "deb [signed-by=/etc/apt/keyrings/xnoto.gpg] https://xnoto.github.io/opencode-agent-hub/apt ./" | sudo tee /etc/apt/sources.list.d/xnoto.list
@@ -29,6 +29,9 @@ sudo apt install opencode-agent-hub
   <pre>
 # Add repository
 sudo curl -o /etc/yum.repos.d/xnoto.repo https://xnoto.github.io/opencode-agent-hub/xnoto.repo
+
+# Import or refresh the repository signing key
+sudo rpm --import https://xnoto.github.io/opencode-agent-hub/KEY.gpg
 
 # Install
 sudo dnf install opencode-agent-hub
