@@ -419,7 +419,7 @@ wheels = [
 
 [[package]]
 name = "opencode-agent-hub"
-version = "1.5.0"
+version = "1.6.1"
 source = { editable = "." }
 dependencies = [
     { name = "prometheus-client" },
