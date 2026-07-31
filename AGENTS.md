@@ -67,6 +67,16 @@ The daemon detects a session's agent by querying the **first user message** in S
 - Route-specific chatty throttling is configurable and enabled by default. Preserve the configured window, message limit, and cooldown when changing routing behavior.
 - Message and feedback files use atomic writes. Keep filesystem event handling compatible with create and move events.
 
+## Release Packaging and Signing
+
+- `.github/workflows/release-packages.yml` owns Linux release artifacts and the signed APT/RPM repositories published to GitHub Pages. Publishing or manually dispatching it changes external distribution state and requires explicit confirmation.
+- Manual recovery dispatches must use an existing immutable `v*` release tag. They rebuild that tag, republish the package repositories, and intentionally do not replace GitHub release assets.
+- `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` are repository secrets in `xnoto/opencode-agent-hub`; they are not Homebrew tap secrets. Never print, download, or expose their values while diagnosing workflows.
+- The workflow pins the expected full signing-key fingerprint and derives expiry from the imported secret key. Do not replace this with a hard-coded date or a short key ID.
+- After extending the existing key's expiry, export the renewed secret key back into `GPG_PRIVATE_KEY`. A true key rotation also requires deliberately updating the pinned fingerprint and user-facing key-refresh instructions.
+- Pull requests build packages but skip signing and publication because repository secrets are unavailable. After an approved publication, verify the deployed `KEY.gpg` fingerprint and expiry, APT and RPM signatures, and published package versions.
+- Homebrew formula updates are separate from Linux package signing. The source workflow opens formula-update pull requests in `xnoto/homebrew-opencode-agent-hub`; follow that repository's `AGENTS.md` before changing or merging them.
+
 ## Testing
 
 Python 3.11 or newer is required. Set up and verify the repository with:
