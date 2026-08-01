@@ -2,9 +2,10 @@
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "agent-hub": {
-      "type": "local",
-      "command": ["npx", "-y", "agent-hub-mcp@latest"],
-      "enabled": true
+      "type": "remote",
+      "url": "http://127.0.0.1:8776/mcp",
+      "enabled": true,
+      "oauth": false
     },
     "context-mode": {
       "type": "local",
@@ -25,14 +26,16 @@
       }
     },
     "opencode-docs": {
-      "type": "local",
-      "command": ["npx", "-y", "opencode-docs-mcp@latest"],
-      "enabled": true
+      "type": "remote",
+      "url": "http://127.0.0.1:8773/mcp",
+      "enabled": true,
+      "oauth": false
     },
     "tmux": {
-      "type": "local",
-      "command": ["npx", "-y", "tmux-mcp"],
-      "enabled": true
+      "type": "remote",
+      "url": "http://127.0.0.1:8770/mcp",
+      "enabled": true,
+      "oauth": false
     },
 
     "linear": { "enabled": false },
