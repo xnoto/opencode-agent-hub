@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.6.2](https://github.com/xnoto/opencode-agent-hub/compare/v1.6.1...v1.6.2) (2026-08-14)
+
+
+### Bug Fixes
+
+* align AWS MCP names ([#89](https://github.com/xnoto/opencode-agent-hub/issues/89)) ([10e6b81](https://github.com/xnoto/opencode-agent-hub/commit/10e6b814c8a08065db951d683c6b47173ca73f4b))
+* **ci:** pass signing passphrase through environment ([#93](https://github.com/xnoto/opencode-agent-hub/issues/93)) ([fa5e543](https://github.com/xnoto/opencode-agent-hub/commit/fa5e543aa25caa80edeff25c22581c44d36f35dd))
+* **ci:** validate renewed package signing key ([#92](https://github.com/xnoto/opencode-agent-hub/issues/92)) ([5ac91a6](https://github.com/xnoto/opencode-agent-hub/commit/5ac91a64ee836930f1a2f7fb708e5e21266732d1))
+* harden coordination and tap maintenance ([#91](https://github.com/xnoto/opencode-agent-hub/issues/91)) ([ae7f17a](https://github.com/xnoto/opencode-agent-hub/commit/ae7f17af9c592924b1b3aa112b438937d0291938))
+* route project MCPs through shared gateway ([#94](https://github.com/xnoto/opencode-agent-hub/issues/94)) ([9912693](https://github.com/xnoto/opencode-agent-hub/commit/991269335f022bd89ab028614458c4184d8247ca))
+
 ## [1.6.1](https://github.com/xnoto/opencode-agent-hub/compare/v1.6.0...v1.6.1) (2026-07-27)
 
 
