@@ -48,7 +48,8 @@
     "opentofu-docs": { "enabled": false },
     "kubernetes": { "enabled": false },
     "argocd-staging-eks": { "enabled": false },
-    "argocd-prod-eks": { "enabled": false }
+    "argocd-prod-eks": { "enabled": false },
+    "argocd-makeitwork": { "enabled": false }
   },
   "tools": {
     "linear_*": false,
@@ -61,6 +62,7 @@
     "opentofu-docs_*": false,
     "kubernetes_*": false,
     "argocd-staging-eks_*": false,
-    "argocd-prod-eks_*": false
+    "argocd-prod-eks_*": false,
+    "argocd-makeitwork_*": false
   }
 }
