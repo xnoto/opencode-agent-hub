@@ -385,11 +385,6 @@ def test_find_coordinator_session_ignores_similar_titles() -> None:
 # =============================================================================
 
 
-# NOTE: The orient_session tests have been updated to match the new signature
-# but the function implementation has changed. These tests may need further
-# updates based on actual function behavior.
-
-
 def test_orient_session_skips_coordinator_by_session_id() -> None:
     """Verify orient_session skips injection for coordinator session."""
     import opencode_agent_hub.config
@@ -476,73 +471,6 @@ def test_orient_session_no_coordinator_id_does_not_skip() -> None:
         opencode_agent_hub.config.ORIENTED_SESSIONS = original_oriented
 
 
-# =============================================================================
-# Tests for start_coordinator (integration with mocks)
-# =============================================================================
-
-
-# NOTE: These tests require complex mocking of the coordinator startup sequence.
-# They are skipped for now as they test implementation details that have changed.
-
-# def test_start_coordinator_registers_session_and_queues_bootstrap() -> None:
-#     """Verify start_coordinator registers coordinator and queues bootstrap prompt."""
-#     pass
-
-# def test_start_coordinator_returns_false_on_api_error() -> None:
-#     """Verify start_coordinator fails when session creation API fails."""
-#     pass
-
-# def test_start_coordinator_reuses_existing_session() -> None:
-#     """Verify start_coordinator kills existing and creates new session."""
-#     pass
-
-# def test_start_coordinator_disabled() -> None:
-#     """Verify start_coordinator returns False when disabled."""
-#     pass
-
-# def test_start_coordinator_fails_when_setup_fails() -> None:
-#     """Verify start_coordinator returns False when setup fails."""
-#     pass
-
-# def test_start_coordinator_continues_when_ready_not_acknowledged() -> None:
-#     """Verify start_coordinator continues in best-effort mode without readiness ack."""
-#     pass
-
-# def test_start_coordinator_fails_when_bootstrap_required_and_not_ready() -> None:
-#     """Verify start_coordinator fails when readiness is required and missing."""
-#     pass
-
-
-# def test_notify_coordinator_new_agent_retries_when_no_activity() -> None:
-#     """Verify NEW_AGENT notification is retried once when coordinator is silent."""
-#     pass
-
-
-# NOTE: COORDINATOR_STRICT_READY config option doesn't exist in current code.
-# These tests are commented out until the feature is implemented.
-
-# def test_wait_for_coordinator_ready_accepts_activity_when_not_strict() -> None:
-#     """Verify readiness accepts assistant activity when strict mode is disabled."""
-#     pass
-
-# def test_wait_for_coordinator_ready_requires_ready_when_strict() -> None:
-#     """Verify strict readiness mode ignores non-READY assistant activity."""
-#     pass
-
-# def test_wait_for_coordinator_ready_accepts_exact_ready_in_strict_mode() -> None:
-#     """Verify strict mode still succeeds on exact READY acknowledgement."""
-#     pass
-
-
-# NOTE: _get_recent_hub_error_context implementation has changed.
-# It now fetches from session messages instead of log files.
-# This test is commented out until the test is updated.
-
-# def test_get_recent_hub_error_context_returns_session_errors() -> None:
-#     """Verify hub error context helper extracts session-scoped error lines."""
-#     pass
-
-
 def test_find_opencode_serve_pids_on_port_filters_non_opencode() -> None:
     """Verify PID discovery returns only opencode serve listeners."""
     lsof_out = mock.MagicMock()
@@ -575,37 +503,6 @@ def test_kill_opencode_serve_pids_escalates_to_sigkill() -> None:
     assert (123, signal.SIGTERM) in calls
     assert (123, 0) in calls
     assert (123, signal.SIGKILL) in calls
-
-
-# =============================================================================
-# Tests for coordinator self-registration race condition fix
-# =============================================================================
-
-
-# NOTE: The following tests reference get_or_create_agent_for_session which has been
-# removed in the refactored code. Agents are now auto-created via
-# get_or_create_agent_for_directory in sessions.py. These tests are commented out
-# until the functionality is re-implemented or tests are updated.
-
-# def test_poll_active_sessions_skips_coordinator() -> None:
-#     """Verify poll_active_sessions skips coordinator session before creating agent."""
-#     pass
-
-# def test_poll_active_sessions_no_skip_when_coordinator_unset() -> None:
-#     """Verify poll_active_sessions processes all sessions when no coordinator is set."""
-#     pass
-
-# def test_process_session_file_skips_coordinator() -> None:
-#     """Verify process_session_file skips coordinator session before creating agent."""
-#     pass
-
-# def test_process_session_file_processes_non_coordinator() -> None:
-#     """Verify process_session_file processes normal sessions normally."""
-#     pass
-
-# def test_no_phantom_agent_for_coordinator_end_to_end() -> None:
-#     """End-to-end: coordinator session appears in poll, no phantom agent created."""
-#     pass
 
 
 def test_session_has_blocking_permissions_with_deny_question() -> None:
@@ -688,20 +585,3 @@ def test_find_coordinator_session_returns_valid_session() -> None:
     with mock.patch("opencode_agent_hub.sessions.get_sessions_uncached", return_value=sessions):
         result = find_coordinator_session()
         assert result == "ses_valid_coord"
-
-
-# NOTE: The setup_coordinator_directory tests for opencode.json templates
-# require specific template setup that may not work with the current implementation.
-# They are skipped for now.
-
-# def test_setup_coordinator_directory_copies_opencode_json_template() -> None:
-#     """Verify setup_coordinator_directory copies opencode.json from template."""
-#     pass
-
-# def test_setup_coordinator_directory_fails_without_template() -> None:
-#     """Verify setup_coordinator_directory returns False when no opencode.json template found."""
-#     pass
-
-# def test_setup_coordinator_directory_overwrites_existing_opencode_json() -> None:
-#     """Verify setup_coordinator_directory always overwrites opencode.json with template."""
-#     pass

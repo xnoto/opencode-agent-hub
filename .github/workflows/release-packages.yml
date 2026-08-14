@@ -132,7 +132,6 @@ jobs:
         run: |
           VERSION="${{ needs.build-python.outputs.version }}"
           cp -r contrib/packaging/debian .
-          # Update changelog version
           sed -i "1s/([^)]*)/($VERSION-1)/" debian/changelog
 
       - name: Build DEB

@@ -57,19 +57,6 @@ def test_generate_agent_id_for_session_empty_slug() -> None:
     assert "-" in agent_id
 
 
-# NOTE: get_or_create_agent_for_session has been removed in the refactored code.
-# Agents are now auto-created via get_or_create_agent_for_directory in sessions.py
-# These tests are disabled until the functionality is re-implemented.
-
-# def test_get_or_create_agent_for_session_new() -> None:
-#     """Verify new agent is created for unknown session."""
-#     pass
-
-# def test_get_or_create_agent_for_session_existing() -> None:
-#     """Verify existing agent is returned for known session."""
-#     pass
-
-
 def test_find_session_for_agent_with_session_id() -> None:
     """Verify session lookup works with sessionId field."""
     agent = {

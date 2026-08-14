@@ -53,7 +53,6 @@ def gc_oriented_sessions() -> int:
     now_ms = int(time.time() * 1000)
     stale_threshold_ms = MESSAGE_TTL_SECONDS * 1000  # 1 hour
 
-    # Build set of recently active session IDs
     active_ids = set()
     for s in current_sessions:
         session_id = s.get("id", "")
@@ -100,7 +99,6 @@ def gc_session_agents() -> int:
     now_ms = int(time.time() * 1000)
     stale_threshold_ms = AGENT_STALE_SECONDS * 1000
 
-    # Build set of active session IDs (exist AND updated recently)
     active_ids = set()
     for s in current_sessions:
         session_id = s.get("id", "")

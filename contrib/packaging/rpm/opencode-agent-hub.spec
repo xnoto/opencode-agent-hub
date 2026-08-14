@@ -38,7 +38,6 @@ Enables multiple AI agents to communicate and coordinate through a shared messag
 install -Dpm 644 contrib/systemd/agent-hub-daemon.service \
     %{buildroot}/usr/lib/systemd/user/agent-hub-daemon.service
 
-# Install coordinator templates
 install -Dpm 644 contrib/coordinator/opencode.json \
     %{buildroot}/usr/share/opencode-agent-hub/coordinator/opencode.json
 install -Dpm 644 contrib/coordinator/AGENTS.md \

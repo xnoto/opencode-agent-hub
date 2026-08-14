@@ -208,13 +208,11 @@ def setup_coordinator_directory() -> bool:
         config.log.info(f"Preserving existing coordinator AGENTS.md at {agents_md}")
         return True
 
-    # Find and copy template
     template = find_coordinator_agents_md_template()
     if template is not None:
         shutil.copy(template, agents_md)
         config.log.info(f"Copied coordinator AGENTS.md from {template}")
     else:
-        # Create minimal AGENTS.md if no template found
         minimal_agents_md = """# Coordinator Agent
 
 You are the coordinator for a multi-agent system. Your job is to facilitate collaboration.
@@ -388,7 +386,7 @@ def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int, after_ms:
     """Wait for coordinator readiness based on READY or assistant activity."""
     deadline = time.time() + max(1, timeout_seconds)
     last_log_time = 0.0
-    log_interval = 10  # Log progress every 10 seconds
+    log_interval = 10
 
     while time.time() < deadline:
         messages = _fetch_session_messages(session_id)
@@ -425,7 +423,7 @@ def _wait_for_coordinator_ready(session_id: str, timeout_seconds: int, after_ms:
             if assistant_msgs > 0:
                 recent_assistant = [
                     m for m in messages if m.get("info", {}).get("role") == "assistant"
-                ][-3:]  # Last 3 assistant messages
+                ][-3:]
                 for msg in recent_assistant:
                     parts = msg.get("parts", [])
                     text_parts = [p.get("text", "")[:100] for p in parts if p.get("type") == "text"]
@@ -587,7 +585,6 @@ def start_coordinator() -> bool:
             "status": "active",
             "lastSeen": int(time.time() * 1000),
         }
-        # Write agent file directly (atomic write)
         config.AGENTS_DIR.mkdir(parents=True, exist_ok=True)
         agent_file = config.AGENTS_DIR / "coordinator.json"
         atomic_write_json(agent_file, coordinator_agent, indent=2)
@@ -671,7 +668,6 @@ def stop_coordinator() -> None:
         config.COORDINATOR_MODEL = None
         config.COORDINATOR_AGENT = None
 
-        # Clean up coordinator agent file
         try:
             agent_file = config.AGENTS_DIR / "coordinator.json"
             if agent_file.exists():

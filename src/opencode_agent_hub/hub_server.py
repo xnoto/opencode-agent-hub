@@ -23,7 +23,6 @@ from opencode_agent_hub.config import (
     log,
 )
 
-# Store the global process reference
 _hub_server_process: subprocess.Popen | None = None
 
 

@@ -381,7 +381,6 @@ def main() -> None:
         signal.signal(signal.SIGWINCH, lambda *_: refresh_event.set())
 
     try:
-        # Initial render
         render_dashboard()
 
         while True:

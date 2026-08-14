@@ -152,5 +152,4 @@ class PrometheusMetrics:
             g._value.set(0)
 
 
-# Global metrics instance
 metrics = PrometheusMetrics()

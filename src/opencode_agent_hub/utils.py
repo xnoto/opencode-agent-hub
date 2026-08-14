@@ -29,13 +29,11 @@ def atomic_write_json(path: Path, data: Any, indent: int | None = 2) -> None:
     temp_path = path.with_suffix(f".tmp.{os.getpid()}")
 
     try:
-        # Write to temp file first
         temp_path.write_text(json_str, encoding="utf-8")
 
         # Atomic rename - readers see either old or new, never partial
         temp_path.rename(path)
     except Exception:
-        # Clean up temp file on any error
         with suppress(OSError):
             temp_path.unlink()
         raise
