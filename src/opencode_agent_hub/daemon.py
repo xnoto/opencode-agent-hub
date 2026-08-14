@@ -114,7 +114,6 @@ from opencode_agent_hub.preflight import check_agent_hub_mcp_configured
 from opencode_agent_hub.service import install_systemd_service, uninstall_systemd_service
 from opencode_agent_hub.sessions import check_orientation_retries, poll_active_sessions
 
-# Module-level state variable (initialized in main())
 DAEMON_START_TIME_MS: int = 0
 
 
@@ -290,7 +289,6 @@ Examples:
         """Background thread to monitor coordinator session on hub server."""
         while not shutdown_event.is_set():
             if COORDINATOR_ENABLED and COORDINATOR_SESSION_ID is not None:
-                # Verify session still exists on hub
                 try:
                     session = find_coordinator_session()
                     if session is None:

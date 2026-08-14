@@ -73,7 +73,6 @@ def _get_config_value(
         config: Loaded config dict
         type_: Expected type (str, int, or bool)
     """
-    # Check environment variable first
     env_value = os.environ.get(env_var)
     if env_value is not None:
         if type_ is bool:
@@ -82,7 +81,6 @@ def _get_config_value(
             return int(env_value)
         return env_value
 
-    # Traverse config dict path
     value = config
     for key in config_path:
         if isinstance(value, dict) and key in value:
@@ -90,7 +88,6 @@ def _get_config_value(
         else:
             return default
 
-    # Validate type
     if type_ is bool and isinstance(value, bool):
         return value
     if type_ is int and isinstance(value, int):
@@ -101,7 +98,6 @@ def _get_config_value(
     return default
 
 
-# Load config file once at module load
 _CONFIG = _load_config_file()
 
 # =============================================================================
@@ -142,7 +138,6 @@ COORDINATOR_PRESERVE_LOCAL_AGENTS_MD = _get_config_value(
     bool,
 )
 
-# Convert COORDINATOR_AGENTS_MD to Path if set
 if COORDINATOR_AGENTS_MD:
     COORDINATOR_AGENTS_MD = Path(COORDINATOR_AGENTS_MD)
 
@@ -338,16 +333,12 @@ LOG_LEVEL = _get_config_value(
 # Internal State (global mutable state)
 # =============================================================================
 
-# Track which sessions have been oriented
 ORIENTED_SESSIONS: set[str] = set()
 
-# Threading lock for ORIENTED_SESSIONS access
 ORIENTED_SESSIONS_LOCK = threading.Lock()
 
-# Track session-to-agent mappings
 SESSION_AGENTS: dict[str, dict[str, Any]] = {}
 
-# Track pending orientation retries
 ORIENTATION_PENDING: dict[str, dict] = {}
 
 # Session cache (avoids repeated API calls)
@@ -388,7 +379,6 @@ def _get_coordinator_title() -> str:
     return os.environ.get("AGENT_HUB_COORDINATOR_TITLE", "Agent Hub Coordinator")
 
 
-# Initialize logging
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
     format="%(asctime)s [%(levelname)s] %(message)s",

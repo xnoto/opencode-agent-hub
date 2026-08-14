@@ -8,7 +8,6 @@ import time
 
 from opencode_agent_hub import config
 
-# Rate limiting state - maps agent_id to list of message timestamps
 _agent_message_times: dict[str, list[float]] = {}
 
 
@@ -23,13 +22,11 @@ def check_rate_limit(agent_id: str) -> tuple[bool, str | None]:
 
     now = time.time()
 
-    # Initialize tracking for this agent
     if agent_id not in _agent_message_times:
         _agent_message_times[agent_id] = []
 
     times = _agent_message_times[agent_id]
 
-    # Check cooldown (minimum time between messages)
     if config.RATE_LIMIT_COOLDOWN_SECONDS > 0 and times:
         last_msg = times[-1]
         elapsed = now - last_msg
@@ -37,11 +34,9 @@ def check_rate_limit(agent_id: str) -> tuple[bool, str | None]:
             remaining = int(config.RATE_LIMIT_COOLDOWN_SECONDS - elapsed)
             return False, f"Cooldown: wait {remaining}s before sending again"
 
-    # Prune old timestamps outside the window
     window_start = now - config.RATE_LIMIT_WINDOW_SECONDS
     times[:] = [t for t in times if t > window_start]
 
-    # Check rate limit
     if len(times) >= config.RATE_LIMIT_MAX_MESSAGES:
         return (
             False,

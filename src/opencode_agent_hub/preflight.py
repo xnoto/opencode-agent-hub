@@ -106,7 +106,6 @@ def check_agent_hub_mcp_configured() -> bool:
     agent_hub_allowed = False
 
     if isinstance(permissions, dict):
-        # Check for agent-hub_* permission
         agent_hub_perm = permissions.get("agent-hub_*")
         if agent_hub_perm == "allow":
             agent_hub_allowed = True
