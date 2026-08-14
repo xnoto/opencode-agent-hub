@@ -97,3 +97,11 @@ When modifying injection behavior, ensure tests verify:
 - Both the coordinator and regular session code paths are covered
 
 Pre-commit hooks enforce Ruff, formatting, YAML/TOML validation, secret checks, mypy, Bandit, Vulture, Conventional Commits, and pytest. Work on a feature branch because `main` is protected and guarded by `no-commit-to-branch`. Run `pre-commit run --all-files` to verify locally, then recheck `git status` in case a package tool attempted to refresh `uv.lock`.
+
+When updating the mirrored mypy hook, keep its isolated
+`additional_dependencies` synchronized with the runtime imports and keep it
+scoped to `src/`, matching CI's `uv run mypy src/`. Bandit's B404/B603/B607
+skips cover the service's reviewed subprocess-based process management; do not
+broaden that skip list without reviewing each new finding.
+GitHub Actions do not all publish moving major tags; `astral-sh/setup-uv` must
+use an existing release tag such as `v10.0.0`, not an assumed `v10` alias.

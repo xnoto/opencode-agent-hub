@@ -32,7 +32,7 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Homebrew tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: xnoto/homebrew-opencode-agent-hub
           token: ${{ secrets.HOMEBREW_TAP_SECRET }}
@@ -77,7 +77,7 @@ jobs:
           PY
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.HOMEBREW_TAP_SECRET }}
           commit-message: "chore: update formula for ${{ steps.release.outputs.tag }}"
