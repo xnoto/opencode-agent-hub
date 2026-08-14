@@ -103,3 +103,5 @@ When updating the mirrored mypy hook, keep its isolated
 scoped to `src/`, matching CI's `uv run mypy src/`. Bandit's B404/B603/B607
 skips cover the service's reviewed subprocess-based process management; do not
 broaden that skip list without reviewing each new finding.
+GitHub Actions do not all publish moving major tags; `astral-sh/setup-uv` must
+use an existing release tag such as `v10.0.0`, not an assumed `v10` alias.
