@@ -415,7 +415,7 @@ def inject_message_sync(
 
         if attempt < INJECTION_RETRIES - 1:
             metrics.inc("agent_hub_injections_retried_total")
-            time.sleep(0.5 * (attempt + 1))  # Backoff
+            time.sleep(0.5 * (attempt + 1))
 
     log.error(f"Injection failed after {INJECTION_RETRIES} attempts for session {session_id[:8]}")
     metrics.inc("agent_hub_injections_failed_total")
@@ -745,7 +745,6 @@ class MessageHandler(FileSystemEventHandler):
 
     def _queue_message_file(self, path: Path) -> None:
         log.info(f"New message file detected: {path.name}")
-        # Queue for async processing (non-blocking)
         _message_queue.put(MessageTask(path=path))
 
     def on_created(self, event: FileSystemEvent) -> None:
@@ -801,7 +800,6 @@ class SessionHandler(FileSystemEventHandler):
 
     def _queue_session_file(self, path: Path) -> None:
         log.debug(f"New session file created: {path.name}")
-        # Queue for async processing (non-blocking)
         _session_queue.put(SessionTask(path=path))
 
 
@@ -843,7 +841,6 @@ class AgentHandler(FileSystemEventHandler):
         log.info(f"New agent registration file: {path.name}")
         self._reload()
 
-        # Check if this is a new agent that needs coordinator notification
         self._handle_new_agent(path)
 
     def on_modified(self, event: FileSystemEvent) -> None:
@@ -904,7 +901,6 @@ class AgentHandler(FileSystemEventHandler):
                 else:
                     log.debug(f"Agent {agent_id} re-registered for same session {session_id[:8]}")
             elif session_id:
-                # Track this session->agent mapping
                 SESSION_AGENTS[session_id] = agent
                 save_session_agents()
                 log.debug(f"Tracked session {session_id[:8]} -> agent {agent_id}")
@@ -920,7 +916,6 @@ class AgentHandler(FileSystemEventHandler):
                     remove_agent(agent_id)
                     return
 
-            # Notify coordinator of new agent
             notify_coordinator_new_agent(agent_id, directory)
             log.info(
                 f"Registered new agent: {agent_id} (session: {session_id[:8] if session_id else 'none'}, dir: {directory})"

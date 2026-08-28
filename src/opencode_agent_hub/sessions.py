@@ -25,7 +25,6 @@ from opencode_agent_hub.persistence import (
     save_oriented_sessions,
 )
 
-# Session cache lock
 _sessions_cache_lock = threading.Lock()
 
 # Adjectives and nouns for human-readable agent IDs
@@ -285,7 +284,6 @@ def get_sessions() -> list[dict[str, Any]] | None:
             metrics.inc("agent_hub_cache_hits_total")
             return cast(list[dict[str, Any]], _sessions_cache)
 
-        # Cache miss or expired
         metrics.inc("agent_hub_cache_misses_total")
         sessions = get_sessions_uncached()
         if sessions is not None:  # Only update cache on success
@@ -386,7 +384,6 @@ def format_notification(msg: dict[str, Any], to_agent_id: str) -> str:
     priority = msg.get("priority", "normal")
     thread_id = msg.get("threadId", "")
 
-    # Build concise notification
     prefix = "URGENT: " if priority == "urgent" else ""
     header = f"[{msg_type}] from {from_agent}"
     if thread_id:

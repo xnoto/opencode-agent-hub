@@ -12,19 +12,6 @@
       "command": ["context-mode"],
       "enabled": true
     },
-    "context7": {
-      "type": "remote",
-      "url": "https://mcp.context7.com/mcp",
-      "enabled": true
-    },
-    "github": {
-      "type": "remote",
-      "url": "https://api.githubcopilot.com/mcp/",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer {env:GITHUB_TOKEN}"
-      }
-    },
     "opencode-docs": {
       "type": "remote",
       "url": "http://127.0.0.1:8773/mcp",
@@ -48,7 +35,8 @@
     "opentofu-docs": { "enabled": false },
     "kubernetes": { "enabled": false },
     "argocd-staging-eks": { "enabled": false },
-    "argocd-prod-eks": { "enabled": false }
+    "argocd-prod-eks": { "enabled": false },
+    "argocd-makeitwork": { "enabled": false }
   },
   "tools": {
     "linear_*": false,
@@ -61,6 +49,7 @@
     "opentofu-docs_*": false,
     "kubernetes_*": false,
     "argocd-staging-eks_*": false,
-    "argocd-prod-eks_*": false
+    "argocd-prod-eks_*": false,
+    "argocd-makeitwork_*": false
   }
 }

@@ -264,11 +264,9 @@ def ensure_thread_id(msg: dict[str, Any], msg_path: Path) -> str:
         else:
             create_thread(msg)
     else:
-        # Auto-generate threadId
         thread = create_thread(msg)
         thread_id = thread["id"]
         msg["threadId"] = thread_id
-        # Rewrite the message file with threadId
         msg_path.write_text(json.dumps(msg, indent=2))
         log.debug(f"Auto-assigned threadId {thread_id} to message {msg_path.name}")
 
