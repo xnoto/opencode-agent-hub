@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.3](https://github.com/xnoto/opencode-agent-hub/compare/v1.6.2...v1.6.3) (2026-08-30)
+
+
+### Documentation
+
+* add archive notice and uninstall instructions ([#99](https://github.com/xnoto/opencode-agent-hub/issues/99)) ([61310f8](https://github.com/xnoto/opencode-agent-hub/commit/61310f8aafefbd6f99074f066ccad11d80bf06df))
+
 ## [1.6.2](https://github.com/xnoto/opencode-agent-hub/compare/v1.6.1...v1.6.2) (2026-08-14)
 
 
