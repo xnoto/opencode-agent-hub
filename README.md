@@ -2,6 +2,25 @@
 
 Multi-agent coordination for [OpenCode](https://github.com/anomalyco/opencode). Lets multiple AI agents in separate OpenCode sessions talk to each other.
 
+> ## ⚠️ Archived — 2026-08-30
+>
+> This repository and its Homebrew tap [`xnoto/homebrew-opencode-agent-hub`](https://github.com/xnoto/homebrew-opencode-agent-hub) are **archived and no longer maintained**. The tap formula is marked `deprecate! ... :repo_archived` per the [Homebrew deprecation lifecycle](https://docs.brew.sh/Deprecating-Disabling-and-Removing).
+>
+> **Why it was decommissioned:**
+>
+> - **Coupling to undocumented, fast-moving upstream internals.** The daemon reads OpenCode's raw SQLite schema, watches its internal storage layout, and calls an undocumented HTTP surface (`/session`, `prompt_async`, `PATCH /config`); upstream shipped 25 releases in the six weeks before archival and its architecture spec moves the API to a project-scoped surface ([`specs/project.md`](https://github.com/anomalyco/opencode/blob/dev/specs/project.md)). Each upstream change silently broke discovery or injection (schema fallbacks, storage-path moves, and agent-detection heuristics are all fixes for prior upstream changes; see `CHANGELOG.md`).
+> - **The core mechanism is opposed by model safety training.** Injecting imperative instructions into other sessions as user-role messages is increasingly flagged as prompt injection — including in Anthropic's own first-party tooling ([claude-agent-sdk-typescript#379](https://github.com/anthropics/claude-agent-sdk-typescript/issues/379), [claude-code#76026](https://github.com/anthropics/claude-code/issues/76026)) — and those defenses are being strengthened, not relaxed ([Anthropic prompt-injection research](https://www.anthropic.com/research/prompt-injection-defenses), [guardrails guidance](https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/mitigate-jailbreaks)). Automated LLM-to-LLM channels also amplify injection risk ([arXiv:2410.07283](https://arxiv.org/abs/2410.07283); [OWASP LLM01:2025](https://genai.owasp.org/llmrisk2023-24/llm01-24-prompt-injection)).
+> - **One maintainer across five distribution surfaces** (Homebrew, APT, RPM, PyPI, AUR) with minimal adoption; supported alternatives exist on OpenCode's plugin/API surface ([opencode-swarm](https://github.com/ZaxbyHub/opencode-swarm), [agentpool](https://github.com/phil65/agentpool)).
+>
+> **Uninstall / cleanup:**
+>
+> - Homebrew: `brew services stop opencode-agent-hub; brew uninstall opencode-agent-hub; brew untap xnoto/opencode-agent-hub`
+> - Debian/Ubuntu: remove `/etc/apt/sources.list.d/xnoto.list` and `/etc/apt/keyrings/xnoto.gpg`, then `sudo apt remove opencode-agent-hub`
+> - Fedora/RHEL: remove `/etc/yum.repos.d/xnoto.repo`, then `sudo dnf remove opencode-agent-hub`
+> - Arch: `yay -R opencode-agent-hub`
+> - Service: `agent-hub-daemon --uninstall-service` (Linux systemd) or unload the LaunchAgent (macOS)
+> - uv/pipx: `uv tool uninstall opencode-agent-hub` / `pipx uninstall opencode-agent-hub`
+
 > **Warning**: This enables autonomous agent-to-agent communication which triggers LLM API calls. Use at your own risk. Consider enabling [rate limiting](#rate-limiting) to control costs.
 
 ## Demo
@@ -170,7 +189,7 @@ Config file: `~/.config/agent-hub-daemon/config.json` (all fields optional). Env
 | `AGENT_HUB_AGENT_STALE_SECONDS` | `600` | Agent stale threshold (seconds) |
 | `AGENT_HUB_SESSION_POLL_SECONDS` | `5` | Session poll interval (seconds) |
 | `AGENT_HUB_GC_INTERVAL_SECONDS` | `60` | GC interval (seconds) |
-| `AGENT_HUB_METRICS_INTERVAL` | `60` | Metrics write interval (seconds) |
+| `AGENT_HUB_METRICS_INTERVAL_SECONDS` | `60` | Metrics write interval (seconds) |
 | `AGENT_HUB_SESSION_CACHE_TTL` | `5` | Session cache TTL (seconds) |
 | `AGENT_HUB_INJECTION_WORKERS` | `3` | Injection worker threads |
 | `AGENT_HUB_INJECTION_RETRIES` | `3` | Injection retry attempts |
